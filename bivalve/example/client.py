@@ -64,19 +64,6 @@ class ExampleClient(BivalveAgent):
 
 
 # --------------------------------------------------------------------
-def input_thread(loop, client: ExampleClient):
-    ninput = NonBlockingTextInput()
-    ninput.start()
-
-    while client.running:
-        s = ninput.read("> ", timeout=1)
-        if s is not None:
-            argv = shlex.split(s)
-            asyncio.run_coroutine_threadsafe(client.send("echo", *argv), loop)
-
-    ninput.stop()
-
-# --------------------------------------------------------------------
 def main():
     LogManager().setup()
     loop = asyncio.new_event_loop()
