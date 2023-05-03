@@ -20,6 +20,7 @@ from bivalve.logging import LogManager
 # --------------------------------------------------------------------
 log = LogManager().get(__name__)
 
+
 # --------------------------------------------------------------------
 @dataclass
 class Stream:
@@ -33,19 +34,19 @@ class Stream:
         await self.writer.wait_closed()
 
     @staticmethod
-    async def connect(host: str, port: int):
-        reader, writer = await asyncio.open_connection(host, port)
+    async def connect(host: str, port: int, ssl=None):
+        reader, writer = await asyncio.open_connection(host, port, ssl=ssl)
         return Stream(reader, writer)
 
     @staticmethod
-    async def start_server(callback, host: str, port: int):
+    async def start_server(callback, host: str, port: int, ssl=None):
         async def connected_callback(reader, writer):
             if inspect.iscoroutinefunction(callback):
                 await callback(Stream(reader, writer))
             else:
                 callback(Stream(reader, writer))
 
-        return await asyncio.start_server(connected_callback, host, port)
+        return await asyncio.start_server(connected_callback, host, port, ssl=ssl)
 
 
 # --------------------------------------------------------------------

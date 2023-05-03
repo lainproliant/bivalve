@@ -31,15 +31,15 @@ class BivalveAgent:
     def running(self) -> bool:
         return bool(self.connections or self.servers)
 
-    async def serve(self, host: str, port: int):
-        server = await Stream.start_server(self.on_client_connect, host, port)
+    async def serve(self, host: str, port: int, ssl=None):
+        server = await Stream.start_server(self.on_client_connect, host, port, ssl)
         self.servers.append(server)
-        log.info(f"Serving peers on {host}:{port}.")
+        log.info(f"Serving peers on {host}:{port} (ssl={ssl}).")
 
-    async def connect(self, host: str, port: int):
-        stream = await Stream.connect(host, port)
+    async def connect(self, host: str, port: int, ssl=None):
+        stream = await Stream.connect(host, port, ssl)
         conn = Connection(stream, asyncio.create_task(self.communicate(stream)))
-        log.info("Connected to peer on {host}:{port}.")
+        log.info("Connected to peer on {host}:{port} (ssl={ssl}).")
         self.connections[conn.id] = conn
 
     async def on_client_connect(self, stream: Stream):
