@@ -15,6 +15,10 @@ from bivalve.util import Borg
 
 # --------------------------------------------------------------------
 class LogManager(Borg):
+    """
+    A borg singleton allowing for globally managed log handlers.
+    """
+
     def __init__(self):
         super().__init__()
         if hasattr(self, "_initialized"):

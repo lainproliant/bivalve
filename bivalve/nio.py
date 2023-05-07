@@ -11,19 +11,28 @@ import fcntl
 import os
 import selectors
 import sys
-from dataclasses import dataclass
 from typing import Optional, TextIO
 
 
 # --------------------------------------------------------------------
-@dataclass
 class NonBlockingTextInput:
+    """
+    Controller for non-blocking console text input.
+    """
+
     def __init__(self, infile: TextIO = sys.stdin, promptfile: TextIO = sys.stdout):
         self.infile = infile
         self.promptfile = promptfile
         self.orig_fl: Optional[int] = None
         self.selector = selectors.DefaultSelector()
         self.timed_out = False
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc_value, exc_tb):
+        self.stop()
 
     def start(self):
         assert self.orig_fl is None

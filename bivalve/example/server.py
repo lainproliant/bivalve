@@ -19,19 +19,23 @@ log = LogManager().get(__name__)
 
 # --------------------------------------------------------------------
 class ExampleServer(BivalveAgent):
-    def __init__(self, host: str, port: int):
+    def __init__(self, host="", port=0):
         super().__init__()
         self.host = host
         self.port = port
 
     def ctrlc_handler(self, *_):
         log.critical("Ctrl+C received.")
-        self.shutdown_event.set()
+        self._shutdown_event.set()
 
     async def run(self):
         signal.signal(signal.SIGINT, self.ctrlc_handler)
-        await self.serve(self.host, self.port)
+        if self.host and self.port:
+            await self.serve(self.host, self.port)
         await super().run()
+
+    def on_connect(self, conn: Connection):
+        self.schedule(conn.send("echo", "Hello, there!"))
 
     async def cmd_echo(self, conn: Connection, msg: str):
         await conn.send("echo", msg)

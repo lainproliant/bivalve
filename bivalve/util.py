@@ -7,32 +7,16 @@
 # Distributed under terms of the MIT license.
 # --------------------------------------------------------------------
 
-import asyncio
-import fcntl
 import inspect
-import os
-import selectors
-import sys
-from dataclasses import dataclass, field
-from typing import Any, Optional, TextIO
-from uuid import UUID, uuid4
+from typing import Any
 
 
 # --------------------------------------------------------------------
 class Borg:
-    _shared_state = {}
+    _shared_state: dict[str, Any] = {}
 
     def __init__(self):
         self.__dict__ = self._shared_state
-
-
-# --------------------------------------------------------------------
-def get_prefixed_methods(prefix, obj):
-    return [
-        getattr(obj, name)
-        for name in dir(obj)
-        if name.startswith(prefix) and callable(getattr(obj, name))
-    ]
 
 
 # --------------------------------------------------------------------

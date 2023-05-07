@@ -21,7 +21,7 @@ log = LogManager().get(__name__)
 
 # --------------------------------------------------------------------
 class ExampleClient(BivalveAgent):
-    def __init__(self, host: str, port: int):
+    def __init__(self, host="", port=0):
         super().__init__()
         self.host = host
         self.port = port
@@ -32,11 +32,12 @@ class ExampleClient(BivalveAgent):
 
     async def run(self):
         signal.signal(signal.SIGINT, self.ctrlc_handler)
-        try:
-            await self.connect(self.host, self.port)
-        except Exception as e:
-            log.fatal("Failed to connect to server.", e)
-            self.shutdown()
+        if self.host and self.port:
+            try:
+                await self.connect(self.host, self.port)
+            except Exception as e:
+                log.fatal("Failed to connect to server.", e)
+                self.shutdown()
 
         loop = asyncio.get_event_loop()
         thread = threading.Thread(target=self.input_thread, args=(loop,))
@@ -51,16 +52,12 @@ class ExampleClient(BivalveAgent):
         print(f"<< ECHO >> {msg}")
 
     def input_thread(self, loop):
-        ninput = NonBlockingTextInput()
-        ninput.start()
-
-        while not self.shutdown_event.is_set():
-            s = ninput.read("> ", timeout=1)
-            if s is not None:
-                argv = shlex.split(s)
-                asyncio.run_coroutine_threadsafe(self.send("echo", *argv), loop)
-
-        ninput.stop()
+        with NonBlockingTextInput() as ninput:
+            while not self._shutdown_event.is_set():
+                s = ninput.read("> ", timeout=1)
+                if s is not None:
+                    argv = shlex.split(s)
+                    asyncio.run_coroutine_threadsafe(self.send("echo", *argv), loop)
 
 
 # --------------------------------------------------------------------
