@@ -70,7 +70,7 @@ class BivalveAgent:
     def bridge(self) -> Connection:
         if self._max_peers and len(self._conn_ctx_map) >= self._max_peers:
             log.warning(
-                f"Cancelled outbound connection: maximum number of peers reached ({self._max_peers})."
+                f"Cancelled bridge connection: maximum number of peers reached ({self._max_peers})."
             )
             raise RuntimeError("Maximum number of peer connections reached.")
 

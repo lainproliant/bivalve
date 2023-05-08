@@ -99,6 +99,11 @@ class Connection:
         self.id = id
         self.alive = AtomicValue(True)
 
+    @classmethod
+    async def connect(cls, host: str, port: int, ssl=None) -> "Connection":
+        stream = Stream.connect(host, port, ssl=ssl)
+        return StreamConnection(stream)
+
     async def close(self):
         if await self.alive():
             await self.alive.set(False)
