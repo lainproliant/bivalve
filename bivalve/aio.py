@@ -140,6 +140,13 @@ class Connection:
     async def _recv(self) -> list[str]:
         raise NotImplementedError()
 
+    async def __aenter__(self) -> "Connection":
+        return self
+
+    async def __aexit__(self, exc_t, exc_v, exc_tb):
+        await self.try_send("bye")
+        await self.close()
+
 
 # --------------------------------------------------------------------
 class StreamConnection(Connection):
