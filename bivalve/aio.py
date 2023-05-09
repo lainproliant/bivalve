@@ -189,8 +189,8 @@ class BridgeConnection(Connection):
 
     def __init__(
         self,
-        send_queue: asyncio.Queue[str],
-        recv_queue: asyncio.Queue[str],
+        send_queue: asyncio.Queue[list[str]],
+        recv_queue: asyncio.Queue[list[str]],
         poll_timeout: float = 1.0,
     ):
         super().__init__(uuid4())
