@@ -1,8 +1,8 @@
 # --------------------------------------------------------------------
-# bridge.py
+# bridged_caller.py
 #
 # Author: Lain Musgrove (lain.proliant@gmail.com)
-# Date: Saturday May 6, 2023
+# Date: Tuesday May 9, 2023
 #
 # Distributed under terms of the MIT license.
 # --------------------------------------------------------------------
@@ -15,13 +15,19 @@ from .server import ExampleServer
 
 
 # --------------------------------------------------------------------
+async def do_call_then_shutdown(conn: Connection, server: ExampleServer):
+    pass
+
+# --------------------------------------------------------------------
 async def main():
     LogManager().setup()
     server = ExampleServer()
-    client = ExampleClient()
-    server.add_connection(client.bridge())
+    conn = server.bridge()
 
-    await asyncio.gather(server.run(), client.run())
+    result = await conn.call("get_message")
+    print(*result)
+
+    await asyncio.gather(server.run(), do_call_then_shutdown(conn, server))
 
 
 # --------------------------------------------------------------------

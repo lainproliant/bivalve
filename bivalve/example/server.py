@@ -17,6 +17,7 @@ from bivalve.logging import LogManager
 # --------------------------------------------------------------------
 log = LogManager().get(__name__)
 
+
 # --------------------------------------------------------------------
 class ExampleServer(BivalveAgent):
     def __init__(self, host="", port=0):
@@ -37,6 +38,9 @@ class ExampleServer(BivalveAgent):
     def on_connect(self, conn: Connection):
         self.schedule(conn.send("echo", "Hello, there!"))
 
+    def fn_get_message(self, conn: Connection):
+        return "Hello!"
+
     async def cmd_echo(self, conn: Connection, msg: str):
         await conn.send("echo", msg)
 
@@ -53,6 +57,7 @@ def main():
     server = ExampleServer("localhost", 9595)
     loop.run_until_complete(server.run())
 
+
 # --------------------------------------------------------------------
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

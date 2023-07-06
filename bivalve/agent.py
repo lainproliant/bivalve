@@ -7,14 +7,17 @@
 # Distributed under terms of the MIT license.
 # --------------------------------------------------------------------
 
+import inspect
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Awaitable, Optional
 
 from bivalve.aio import BridgeConnection, Connection, Stream, StreamConnection
+from bivalve.call import Call
+from bivalve.constants import ControlCommands
 from bivalve.logging import LogManager
-from bivalve.util import Commands
+from bivalve.util import Commands, is_iterable
 
 log = LogManager().get(__name__)
 
@@ -36,7 +39,9 @@ class BivalveAgent:
         syn_schedule=timedelta(seconds=15),
         syn_timeout=timedelta(seconds=5),
     ):
-        self._commands = Commands(self)
+        self._commands = Commands(self, prefix="cmd_")
+        self._functions = Commands(self, prefix="fn_")
+        self._ctl_commands = Commands(self, prefix="ctl_")
         self._conn_ctx_map: dict[Connection.ID, ConnectionContext] = {}
         self._max_peers = max_peers
         self._scheduled: list[Awaitable] = []
@@ -96,6 +101,7 @@ class BivalveAgent:
         self.add_connection(conn)
 
     def add_connection(self, conn: Connection):
+        conn.managed = True
         self._conn_ctx_map[conn.id] = ConnectionContext(
             conn, asyncio.create_task(self.communicate(conn))
         )
@@ -123,7 +129,7 @@ class BivalveAgent:
 
     async def _cleanup(self, conn: Connection, notify=True):
         if notify:
-            await conn.try_send("bye")
+            await conn._ctl_try_send(ControlCommands.BYE)
         await conn.close()
         if conn.id in self._conn_ctx_map:
             del self._conn_ctx_map[conn.id]
@@ -132,7 +138,7 @@ class BivalveAgent:
             loop.call_soon(self.on_disconnect, conn)
 
     async def maintain(self):
-        trash: list[Connection] = []
+        trash_conns: list[Connection] = []
 
         if self._scheduled:
             await asyncio.gather(*self._scheduled)
@@ -144,41 +150,49 @@ class BivalveAgent:
             try:
                 if ctx.ack_ttl and ctx.ack_ttl <= now:
                     log.warning(f"Peer keepalive timed out: {ctx.conn.id}")
-                    trash.append(ctx.conn)
+                    trash_conns.append(ctx.conn)
                 elif ctx.syn_at <= now:
-                    await ctx.conn.send("syn")
+                    await ctx.conn._ctl_send(ControlCommands.SYN)
                     ctx.syn_at = datetime.max
                     ctx.ack_ttl = datetime.now() + self._syn_timeout
 
             except Exception as e:
                 log.error(f"Error managing connection for peer {ctx.conn.id}.", e)
 
-        for conn in trash:
+        for conn in trash_conns:
             await self._cleanup(conn, notify=False)
 
         if self._shutdown_event.is_set():
             await self._shutdown()
 
-    async def process_command(self, conn: Connection, *argv: str):
+    async def process_command(self, conn: Connection, cmd: str, *argv: str):
         try:
-            if len(argv) < 1:
-                raise ValueError("No peer command was specified.")
-            command = self._commands.get(argv[0])
+            if cmd.startswith(ControlCommands.PREFIX):
+                command = self._ctl_commands.get(cmd[1:])
+            else:
+                command = self._commands.get(cmd)
+
             if command is None:
-                raise ValueError(f"Peer command is not recognized: {argv[0]}.")
-            await command(conn, *argv[1:])
+                raise ValueError(f"Peer command is not recognized: `{cmd}`.")
+
+            if inspect.iscoroutinefunction(command):
+                await command(conn, *argv)
+            else:
+                command(conn, *argv)
 
         except ConnectionError:
             raise
 
-        except Exception as e:
-            log.error("Error processing peer command.", e)
+        except Exception:
+            log.exception("Error processing peer command.")
 
     async def communicate(self, conn: Connection):
         while conn.alive:
             try:
                 argv = await conn.recv()
                 try:
+                    if len(argv) < 1:
+                        raise ValueError("No peer command was specified.")
                     await self.process_command(conn, *argv)
                 except ValueError:
                     log.exception("Received an unrecognized peer command.")
@@ -222,13 +236,53 @@ class BivalveAgent:
             *(ctx.conn.send(*argv) for ctx in self._conn_ctx_map.values())
         )
 
-    async def cmd_syn(self, conn: Connection):
-        await conn.send("ack")
+    async def ctl_call(
+        self, conn: Connection, conn_id: str, call_id: str, fn: str, *argv
+    ):
+        try:
+            fn_method = self._functions.get(fn)
+            try:
+                if inspect.iscoroutinefunction(fn_method):
+                    result = await fn_method(conn, *argv)
+                else:
+                    result = fn_method(conn, *argv)
 
-    async def cmd_ack(self, conn: Connection):
+            except Exception as e:
+                log.exception(f"Invocation `{call_id}` of `{fn}` function failed.")
+                await conn._ctl_try_send(ControlCommands.FAIL, conn_id, call_id, str(e))
+
+            if is_iterable(result):
+                result = [str(r) for r in result]
+            else:
+                result = [str(result)]
+
+            await conn._ctl_try_send(ControlCommands.RETURN, conn_id, call_id, *result)
+
+        except ConnectionError:
+            raise
+
+        except Exception:
+            log.exception("Error processing peer function invocation.")
+
+    async def ctl_return(self, conn: Connection, call_id: str, *argv):
+        call = self._call_map.get(call_id)
+        assert call, f"Call {call_id} not found."
+        call.set_result(argv)
+        del self._call_map[call_id]
+
+    async def ctl_error(self, conn: Connection, call_id: str, err_val: str):
+        call = self._call_map.get(call_id)
+        assert call, f"Call {call_id} not found."
+        call.future.set_exception(Exception(err_val))
+        del self._call_map[call_id]
+
+    async def ctl_syn(self, conn: Connection):
+        await conn._ctl_send(ControlCommands.ACK)
+
+    async def ctl_ack(self, conn: Connection):
         ctx = self._conn_ctx_map[conn.id]
         ctx.ack_ttl = None
         ctx.syn_at = datetime.now() + self._syn_schedule
 
-    async def cmd_bye(self, conn: Connection):
+    async def ctl_bye(self, conn: Connection):
         self.disconnect(conn, notify=False)

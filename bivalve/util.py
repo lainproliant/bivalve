@@ -8,7 +8,7 @@
 # --------------------------------------------------------------------
 
 import inspect
-from typing import Any
+from typing import Any, Sequence
 
 
 # --------------------------------------------------------------------
@@ -49,3 +49,13 @@ class Commands:
     def signatures(self):
         for key, value in sorted(self.map.items(), key=lambda x: x[0]):
             yield (key, inspect.signature(value))
+
+
+# --------------------------------------------------------------------
+def is_iterable(obj: Any) -> bool:
+    """Determine if the given object is an iterable sequence other than a string or byte array."""
+    return (
+        isinstance(obj, Sequence)
+        and not isinstance(obj, (str, bytes, bytearray))
+        or inspect.isgenerator(obj)
+    )
