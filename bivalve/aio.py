@@ -12,6 +12,7 @@ import inspect
 import shlex
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from typing import Callable, Generic, Optional, TypeVar
 from uuid import UUID, uuid4
 
@@ -59,31 +60,87 @@ class Stream:
     ID = BaseID
     reader: asyncio.StreamReader
     writer: asyncio.StreamWriter
+    type: "Stream.Type"
     id: UUID = field(default_factory=uuid4)
+
+    class Type(Enum):
+        TCP_PORT = 0
+        UNIX_PATH = 1
 
     async def close(self):
         self.writer.close()
         await self.writer.wait_closed()
 
-    @staticmethod
-    async def connect(host: str, port: int, ssl=None) -> "Stream":
+    @classmethod
+    def _wrap_callback(self, callback):
+        async def connected_callback(reader, writer):
+            stream = Stream(reader, writer)
+            if inspect.iscoroutine(callback):
+                await callback(stream)
+            else:
+                callback(stream)
+
+        return connected_callback
+
+    @classmethod
+    async def connect(
+        cls,
+        *,
+        host: Optional[str] = None,
+        port: Optional[int] = None,
+        path: Optional[str] = None,
+        ssl=None,
+    ) -> "Stream":
         reader, writer = await asyncio.open_connection(host, port, ssl=ssl)
         return Stream(reader, writer)
 
-    @staticmethod
-    async def start_server(callback, host: str, port: int, ssl=None) -> asyncio.Server:
+    @classmethod
+    async def connect_path(cls, path: str, ssl=None) -> "Stream":
+        reader, writer = await asyncio.open_unix_connection(path, ssl=ssl)
+        return Stream(reader, writer)
+
+    @classmethod
+    async def start_server(
+        cls,
+        callback,
+        *,
+        host: Optional[str] = None,
+        port: Optional[str] = None,
+        path: Optional[str] = None,
+        ssl=None,
+    ) -> asyncio.Server:
         """
-        Used to start a server which will be fed Stream objects for connected
-        clients via the provided `callback` function or coroutine.
+        Used to start a server on a TCP port or UNIX named socket path which
+        will be fed Stream objects for connected clients via the provided
+        `callback` function or coroutine.
         """
 
-        async def connected_callback(reader, writer):
-            if inspect.iscoroutinefunction(callback):
-                await callback(Stream(reader, writer))
-            else:
-                callback(Stream(reader, writer))
+        type = cls._determine_stream_type(host=host, port=port, path=path)
+        match type:
+            case Stream.Type.TCP_PORT:
+                return await asyncio.start_server(
+                    cls._wrap_callback(callback), host, port, ssl=ssl
+                )
+            case Stream.Type.UNIX_PATH:
+                return await asyncio.start_unix_server(
+                    cls._wrap_callback(callback), path, ssl=ssl
+                )
 
-        return await asyncio.start_server(connected_callback, host, port, ssl=ssl)
+    def _determine_stream_type(
+        self,
+        *,
+        host: Optional[str] = None,
+        port: Optional[int] = None,
+        path: Optional[str] = None,
+    ) -> "Stream.Type":
+        if path is not None:
+            return Stream.Type.UNIX_PATH
+
+        elif host is not None and port is not None:
+            return Stream.Type.TCP_PORT
+
+        else:
+            raise ValueError("Either host/port pair or path required.")
 
 
 # --------------------------------------------------------------------

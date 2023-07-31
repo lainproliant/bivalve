@@ -49,23 +49,41 @@ class BivalveAgent:
     def running(self) -> bool:
         return bool(self._conn_ctx_map or self._servers)
 
-    async def serve(self, host: str, port: int, ssl=None):
+    async def serve(
+        self,
+        *,
+        host: Optional[str] = None,
+        port: Optional[int] = None,
+        path: Optional[str] = None,
+        ssl=None,
+    ):
         server = await Stream.start_server(self.on_incoming_stream, host, port, ssl)
         self._servers.append(server)
         log.info(f"Serving peers on {host}:{port} (ssl={ssl}).")
 
+    async def serve_path(self, path: str, ssl=None):
+        server = await Stream.start_unix_server(self.on_incoming_stream, path, ssl)
+        self._servers.append(server)
+        log.info(f"Serving peers on UNIX socket file {path} (ssl={ssl}).")
+
     async def connect(self, host: str, port: int, ssl=None) -> Connection:
-        if self._max_peers and len(self._conn_ctx_map) >= self._max_peers:
-            log.warning(
-                f"Cancelled outbound connection: maximum number of peers reached ({self._max_peers})."
-            )
-            raise RuntimeError("Maximum number of peer connections reached.")
+        self._check_max_peers()
 
         stream = await Stream.connect(host, port, ssl)
         conn = StreamConnection(stream)
         log.info("Outbound peer connection on {host}:{port} (ssl={ssl}) established.")
         self.add_connection(conn)
         return conn
+
+    async def connect_path(self, path: str, ssl=None) -> Connection:
+        self._check_max_peers()
+
+    def _check_max_peers(self):
+        if self._max_peers and len(self._conn_ctx_map) >= self._max_peers:
+            log.warning(
+                f"Cancelled outbound connection: maximum number of peers reached ({self._max_peers})."
+            )
+            raise RuntimeError("Maximum number of peer connections reached.")
 
     def bridge(self) -> Connection:
         if self._max_peers and len(self._conn_ctx_map) >= self._max_peers:
