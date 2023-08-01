@@ -34,9 +34,9 @@ class ExampleClient(BivalveAgent):
         signal.signal(signal.SIGINT, self.ctrlc_handler)
         if self.host and self.port:
             try:
-                await self.connect(self.host, self.port)
+                await self.connect(host=self.host, port=self.port)
             except Exception as e:
-                log.fatal("Failed to connect to server.", e)
+                log.exception("Failed to connect to server.")
                 self.shutdown()
 
         loop = asyncio.get_event_loop()

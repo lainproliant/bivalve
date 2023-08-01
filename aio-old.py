@@ -12,49 +12,16 @@ import inspect
 import shlex
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
 from typing import Callable, Generic, Optional, TypeVar
 from uuid import UUID, uuid4
 
 from bivalve.logging import LogManager
-from bivalve.types import ArgV, ArgsQueue
 
 # --------------------------------------------------------------------
 log = LogManager().get(__name__)
 BaseID = UUID
 
 T = TypeVar("T")
-
-
-# --------------------------------------------------------------------
-class SocketParams:
-    """
-    Encapsulates and validates the range of parameters available
-    when connecting to or starting a server via sockets.
-    """
-
-    def __init__(
-        self,
-        host: Optional[str] = None,
-        port: Optional[int] = None,
-        path: Optional[Path | str] = None,
-        ssl: bool = False,
-    ):
-        if host and port:
-            self.host = host
-            self.port = port
-        elif path:
-            self.path = path
-        else:
-            raise ValueError("Invalid socket params.")
-
-    @property
-    def is_tcp(self):
-        return self.host is not None
-
-    @property
-    def is_unix_path(self):
-        return self.path is not None
 
 
 # --------------------------------------------------------------------
@@ -83,64 +50,13 @@ class AtomicValue(Generic[T]):
 
 # --------------------------------------------------------------------
 @dataclass
-class Server:
-    """
-    Class encapsulating an asyncio.Server and the connection details
-    that were used to establish it.
-    """
-
-    ID = BaseID
-    params: SocketParams
-    asyncio_server: asyncio.Server
-    id: UUID = field(default_factory=uuid4)
-
-    @classmethod
-    def _wrap_callback(self, params: SocketParams, callback):
-        async def connected_callback(reader, writer):
-            stream = Stream(params, reader, writer)
-            if inspect.iscoroutine(callback):
-                await callback(stream)
-            else:
-                callback(stream)
-
-        return connected_callback
-
-    @classmethod
-    def serve(cls, callback, **kwargs) -> "Server":
-        """
-        Used to start a server on a TCP port or UNIX named socket path which
-        will be fed Stream objects for connected clients via the provided
-        `callback` function or coroutine.
-        """
-
-        params = SocketParams(**kwargs)
-        callback = cls._wrap_callback(params, callback)
-        if params.is_tcp:
-            asyncio_server = await asyncio.start_server(
-                params.host, params.port, params.ssl
-            )
-
-        else:  # if params.is_unix_path
-            asyncio_server = await asyncio.start_unix_server(
-                params.path, ssl=params.ssl
-            )
-
-        return Server(params, asyncio_server)
-
-    def close(self):
-        self.asyncio_server.close()
-
-
-# --------------------------------------------------------------------
-@dataclass
 class Stream:
     """
     Class encapsulating an asyncio StreamReader/StreamWriter pair
-    for an open connection and the params used to establish it.
+    for an open connection.
     """
 
     ID = BaseID
-    params: SocketParams
     reader: asyncio.StreamReader
     writer: asyncio.StreamWriter
     id: UUID = field(default_factory=uuid4)
@@ -149,19 +65,25 @@ class Stream:
         self.writer.close()
         await self.writer.wait_closed()
 
-    @classmethod
-    async def connect(cls, **kwargs) -> "Stream":
-        params = SocketParams(**kwargs)
-        if params.is_tcp:
-            reader, writer = await asyncio.open_connection(
-                params.host, params.port, ssl=params.ssl
-            )
-        else:  # if params.is_unix_path
-            reader, writer = await asyncio.open_unix_connection(
-                params.path, ssl=params.ssl
-            )
+    @staticmethod
+    async def connect(host: str, port: int, ssl=None) -> "Stream":
+        reader, writer = await asyncio.open_connection(host, port, ssl=ssl)
+        return Stream(reader, writer)
 
-        return Stream(reader, writer, params)
+    @staticmethod
+    async def start_server(callback, host: str, port: int, ssl=None) -> asyncio.Server:
+        """
+        Used to start a server which will be fed Stream objects for connected
+        clients via the provided `callback` function or coroutine.
+        """
+
+        async def connected_callback(reader, writer):
+            if inspect.iscoroutinefunction(callback):
+                await callback(Stream(reader, writer))
+            else:
+                callback(Stream(reader, writer))
+
+        return await asyncio.start_server(connected_callback, host, port, ssl=ssl)
 
 
 # --------------------------------------------------------------------
@@ -178,15 +100,9 @@ class Connection:
         self.alive = AtomicValue(True)
 
     @classmethod
-    async def connect(cls, **kwargs) -> "Connection":
-        stream = Stream.connect(**kwargs)
+    async def connect(cls, host: str, port: int, ssl=None) -> "Connection":
+        stream = Stream.connect(host, port, ssl=ssl)
         return StreamConnection(stream)
-
-    @classmethod
-    async def bridge(
-        cls, send_queue: ArgsQueue, recv_queue: ArgsQueue, poll_timeout=1.0
-    ) -> "Connection":
-        return BridgeConnection(send_queue, recv_queue, poll_timeout)
 
     async def close(self):
         if await self.alive():
@@ -199,7 +115,7 @@ class Connection:
 
         log.debug(f"Sent `{shlex.join(argv)}` to {self.id}")
 
-    async def recv(self) -> ArgV:
+    async def recv(self) -> list[str]:
         argv = await self._recv()
         assert argv
         log.debug(f"Received `{argv}` from {self.id}")
@@ -221,7 +137,7 @@ class Connection:
     async def _send(self, *argv):
         raise NotImplementedError()
 
-    async def _recv(self) -> ArgV:
+    async def _recv(self) -> list[str]:
         raise NotImplementedError()
 
     async def __aenter__(self) -> "Connection":
@@ -251,7 +167,7 @@ class StreamConnection(Connection):
             await self.stream.close()
             await self.alive.set(False)
 
-    async def _recv(self) -> ArgV:
+    async def _recv(self) -> list[str]:
         out = await self.stream.reader.readline()
         if not out or not await self.alive():
             raise ConnectionAbortedError()
@@ -273,8 +189,8 @@ class BridgeConnection(Connection):
 
     def __init__(
         self,
-        send_queue: ArgsQueue,
-        recv_queue: ArgsQueue,
+        send_queue: asyncio.Queue[list[str]],
+        recv_queue: asyncio.Queue[list[str]],
         poll_timeout: float = 1.0,
     ):
         super().__init__(uuid4())
@@ -282,7 +198,7 @@ class BridgeConnection(Connection):
         self.recv_queue = recv_queue
         self.poll_timeout = poll_timeout
 
-    async def _recv(self) -> ArgV:
+    async def _recv(self) -> list[str]:
         while await self.alive():
             result = await self.recv_queue.get()
             self.recv_queue.task_done()

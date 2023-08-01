@@ -9,12 +9,14 @@
 
 import asyncio
 import signal
+import tracemalloc
 
 from bivalve.aio import Connection
 from bivalve.agent import BivalveAgent
 from bivalve.logging import LogManager
 
 # --------------------------------------------------------------------
+tracemalloc.start()
 log = LogManager().get(__name__)
 
 # --------------------------------------------------------------------
@@ -31,7 +33,7 @@ class ExampleServer(BivalveAgent):
     async def run(self):
         signal.signal(signal.SIGINT, self.ctrlc_handler)
         if self.host and self.port:
-            await self.serve(self.host, self.port)
+            await self.serve(host=self.host, port=self.port)
         await super().run()
 
     def on_connect(self, conn: Connection):

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Awaitable, Optional
 
-from bivalve.aio import BridgeConnection, Connection, Stream, StreamConnection
+from bivalve.aio import BridgeConnection, Connection, Server, Stream, StreamConnection
 from bivalve.logging import LogManager
 from bivalve.util import Commands
 
@@ -40,7 +40,7 @@ class BivalveAgent:
         self._conn_ctx_map: dict[Connection.ID, ConnectionContext] = {}
         self._max_peers = max_peers
         self._scheduled: list[Awaitable] = []
-        self._servers: list[asyncio.Server] = []
+        self._servers: list[Server] = []
         self._shutdown_event = asyncio.Event()
         self._syn_schedule = syn_schedule
         self._syn_timeout = syn_timeout
@@ -49,55 +49,38 @@ class BivalveAgent:
     def running(self) -> bool:
         return bool(self._conn_ctx_map or self._servers)
 
-    async def serve(
-        self,
-        *,
-        host: Optional[str] = None,
-        port: Optional[int] = None,
-        path: Optional[str] = None,
-        ssl=None,
-    ):
-        server = await Stream.start_server(self.on_incoming_stream, host, port, ssl)
-        self._servers.append(server)
-        log.info(f"Serving peers on {host}:{port} (ssl={ssl}).")
-
-    async def serve_path(self, path: str, ssl=None):
-        server = await Stream.start_unix_server(self.on_incoming_stream, path, ssl)
-        self._servers.append(server)
-        log.info(f"Serving peers on UNIX socket file {path} (ssl={ssl}).")
-
-    async def connect(self, host: str, port: int, ssl=None) -> Connection:
+    async def serve(self, **kwargs):
         self._check_max_peers()
 
-        stream = await Stream.connect(host, port, ssl)
+        server = await Stream.serve(self.on_incoming_stream, **kwargs)
+        log.info(f"Serving peers on {server}.")
+        self._servers.append(server)
+
+    async def connect(self, **kwargs) -> Connection:
+        self._check_max_peers()
+
+        stream = await Stream.connect(**kwargs)
         conn = StreamConnection(stream)
-        log.info("Outbound peer connection on {host}:{port} (ssl={ssl}) established.")
         self.add_connection(conn)
+        log.info(f"Connected to peer on {conn}.")
         return conn
-
-    async def connect_path(self, path: str, ssl=None) -> Connection:
-        self._check_max_peers()
 
     def _check_max_peers(self):
         if self._max_peers and len(self._conn_ctx_map) >= self._max_peers:
             log.warning(
-                f"Cancelled outbound connection: maximum number of peers reached ({self._max_peers})."
+                f"Cancelled peer connection: maximum number of peers reached ({self._max_peers})."
             )
             raise RuntimeError("Maximum number of peer connections reached.")
 
     def bridge(self) -> Connection:
-        if self._max_peers and len(self._conn_ctx_map) >= self._max_peers:
-            log.warning(
-                f"Cancelled bridge connection: maximum number of peers reached ({self._max_peers})."
-            )
-            raise RuntimeError("Maximum number of peer connections reached.")
+        self._check_max_peers()
 
         send_queue: asyncio.Queue[str] = asyncio.Queue()
         recv_queue: asyncio.Queue[str] = asyncio.Queue()
 
-        our_conn = BridgeConnection(send_queue, recv_queue)
-        their_conn = BridgeConnection(recv_queue, send_queue)
-        log.info(f"Bridge connection established: {our_conn.id}")
+        our_conn = Connection.bridge(send_queue, recv_queue)
+        their_conn = Connection.bridge(recv_queue, send_queue)
+        log.info(f"Bridge connected on {our_conn}.")
         self.add_connection(our_conn)
         return their_conn
 
@@ -105,12 +88,12 @@ class BivalveAgent:
         if self._max_peers and len(self._conn_ctx_map) >= self._max_peers:
             await stream.close()
             log.warning(
-                f"Rejected incoming connection: maximum number of peers reached ({self._max_peers})."
+                f"Rejected incoming connection on {stream}: maximum number of peers reached ({self._max_peers})."
             )
             return
 
         conn = StreamConnection(stream)
-        log.info(f"Incoming peer connection established: {stream.id}")
+        log.info(f"Incoming peer connected: {stream}")
         self.add_connection(conn)
 
     def add_connection(self, conn: Connection):

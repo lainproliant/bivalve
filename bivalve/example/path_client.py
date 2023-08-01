@@ -31,12 +31,11 @@ class ExamplePathClient(BivalveAgent):
 
     async def run(self):
         signal.signal(signal.SIGINT, self.ctrlc_handler)
-        if self.host and self.port:
-            try:
-                await self.connect(self.host, self.port)
-            except Exception as e:
-                log.fatal("Failed to connect to server.", e)
-                self.shutdown()
+        try:
+            await self.connect(path=self.path)
+        except Exception as e:
+            log.exception("Failed to connect to server.")
+            self.shutdown()
 
         loop = asyncio.get_event_loop()
         thread = threading.Thread(target=self.input_thread, args=(loop,))
@@ -65,7 +64,7 @@ def main():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    client = ExampleClient("localhost", 9595)
+    client = ExamplePathClient("./unix.sock")
     loop.run_until_complete(client.run())
 
 # --------------------------------------------------------------------

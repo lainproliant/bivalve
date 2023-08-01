@@ -30,7 +30,7 @@ class ExamplePathServer(BivalveAgent):
     async def run(self):
         signal.signal(signal.SIGINT, self.ctrlc_handler)
         if self.path:
-            await self.serve_path(self.path)
+            await self.serve(path=self.path)
         await super().run()
 
     def on_connect(self, conn: Connection):
