@@ -10,14 +10,16 @@
 import asyncio
 import inspect
 import shlex
+import ssl
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Generic, Optional, TypeVar
 from uuid import UUID, uuid4
 
+from io import StringIO
 from bivalve.logging import LogManager
-from bivalve.types import ArgV, ArgsQueue
+from bivalve.datatypes import ArgV, ArgVQueue
 
 # --------------------------------------------------------------------
 log = LogManager().get(__name__)
@@ -38,8 +40,9 @@ class SocketParams:
         host: Optional[str] = None,
         port: Optional[int] = None,
         path: Optional[Path | str] = None,
-        ssl: bool = False,
+        ssl: Optional[ssl.SSLContext] = None,
     ):
+        self.ssl = ssl
         if host and port:
             self.host = host
             self.port = port
@@ -55,6 +58,20 @@ class SocketParams:
     @property
     def is_unix_path(self):
         return self.path is not None
+
+    def __str__(self):
+        sb = StringIO()
+        sb.write(f"<{self.__class__.__qualname__} ")
+
+        if self.host and self.port:
+            sb.write(f"{self.host}:{self.port}")
+        elif self.path:
+            sb.write(f"file={self.path}")
+        else:
+            sb.write("INVALID")
+
+        sb.write(">")
+        return sb.getvalue()
 
 
 # --------------------------------------------------------------------
@@ -97,8 +114,8 @@ class Server:
     @classmethod
     def _wrap_callback(self, params: SocketParams, callback):
         async def connected_callback(reader, writer):
-            stream = Stream(params, reader, writer)
-            if inspect.iscoroutine(callback):
+            stream = Stream(reader, writer, params)
+            if inspect.iscoroutinefunction(callback):
                 await callback(stream)
             else:
                 callback(stream)
@@ -106,7 +123,7 @@ class Server:
         return connected_callback
 
     @classmethod
-    def serve(cls, callback, **kwargs) -> "Server":
+    async def serve(cls, callback, **kwargs) -> "Server":
         """
         Used to start a server on a TCP port or UNIX named socket path which
         will be fed Stream objects for connected clients via the provided
@@ -117,12 +134,12 @@ class Server:
         callback = cls._wrap_callback(params, callback)
         if params.is_tcp:
             asyncio_server = await asyncio.start_server(
-                params.host, params.port, params.ssl
+                callback, host=params.host, port=params.port, ssl=params.ssl
             )
 
         else:  # if params.is_unix_path
             asyncio_server = await asyncio.start_unix_server(
-                params.path, ssl=params.ssl
+                callback, path=params.path, ssl=params.ssl
             )
 
         return Server(params, asyncio_server)
@@ -140,14 +157,17 @@ class Stream:
     """
 
     ID = BaseID
-    params: SocketParams
     reader: asyncio.StreamReader
     writer: asyncio.StreamWriter
+    params: SocketParams
     id: UUID = field(default_factory=uuid4)
 
     async def close(self):
-        self.writer.close()
-        await self.writer.wait_closed()
+        try:
+            self.writer.close()
+            await self.writer.wait_closed()
+        except Exception as e:
+            log.exception(f"Failed to close stream: {self}.")
 
     @classmethod
     async def connect(cls, **kwargs) -> "Stream":
@@ -184,7 +204,7 @@ class Connection:
 
     @classmethod
     async def bridge(
-        cls, send_queue: ArgsQueue, recv_queue: ArgsQueue, poll_timeout=1.0
+        cls, send_queue: ArgVQueue, recv_queue: ArgVQueue, poll_timeout=1.0
     ) -> "Connection":
         return BridgeConnection(send_queue, recv_queue, poll_timeout)
 
@@ -195,14 +215,15 @@ class Connection:
     async def send(self, *argv):
         assert argv
         assert len(argv) > 0
+        argv = [*argv]
         await self._send(*argv)
 
-        log.debug(f"Sent `{shlex.join(argv)}` to {self.id}")
+        log.debug(f"Sent {argv} to {self.id}")
 
     async def recv(self) -> ArgV:
         argv = await self._recv()
         assert argv
-        log.debug(f"Received `{argv}` from {self.id}")
+        log.debug(f"Received {argv} from {self.id}")
         return argv
 
     async def try_send(self, *argv):
@@ -273,8 +294,8 @@ class BridgeConnection(Connection):
 
     def __init__(
         self,
-        send_queue: ArgsQueue,
-        recv_queue: ArgsQueue,
+        send_queue: ArgVQueue,
+        recv_queue: ArgVQueue,
         poll_timeout: float = 1.0,
     ):
         super().__init__(uuid4())

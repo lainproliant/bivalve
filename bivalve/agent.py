@@ -49,12 +49,13 @@ class BivalveAgent:
     def running(self) -> bool:
         return bool(self._conn_ctx_map or self._servers)
 
-    async def serve(self, **kwargs):
+    async def serve(self, **kwargs) -> Server:
         self._check_max_peers()
 
-        server = await Stream.serve(self.on_incoming_stream, **kwargs)
+        server = await Server.serve(self.on_incoming_stream, **kwargs)
         log.info(f"Serving peers on {server}.")
         self._servers.append(server)
+        return server
 
     async def connect(self, **kwargs) -> Connection:
         self._check_max_peers()
@@ -125,7 +126,9 @@ class BivalveAgent:
     async def _cleanup(self, conn: Connection, notify=True):
         if notify:
             await conn.try_send("bye")
+
         await conn.close()
+
         if conn.id in self._conn_ctx_map:
             del self._conn_ctx_map[conn.id]
             log.info(f"Peer disconnected: {conn.id}.")
@@ -152,7 +155,8 @@ class BivalveAgent:
                     ctx.ack_ttl = datetime.now() + self._syn_timeout
 
             except Exception as e:
-                log.error(f"Error managing connection for peer {ctx.conn.id}.", e)
+                trash.append(ctx.conn)
+                log.error(f"Error managing connection for peer {ctx.conn.id}, closing connection.", e)
 
         for conn in trash:
             await self._cleanup(conn, notify=False)
@@ -176,7 +180,7 @@ class BivalveAgent:
             log.error("Error processing peer command.", e)
 
     async def communicate(self, conn: Connection):
-        while conn.alive:
+        while await conn.alive():
             try:
                 argv = await conn.recv()
                 try:
@@ -186,8 +190,9 @@ class BivalveAgent:
                     loop = asyncio.get_running_loop()
                     loop.call_soon(self.on_unrecognized_command, conn, *argv)
 
-            except ConnectionError:
-                log.warning(f"Connection lost with peer {conn.id}.")
+            except ConnectionError as e:
+                if await conn.alive():
+                    log.exception(f"Connection lost with peer {conn.id}.")
                 await self._cleanup(conn, notify=False)
 
     async def run(self):
