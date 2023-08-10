@@ -10,16 +10,16 @@
 import asyncio
 import inspect
 import shlex
-import ssl
 from dataclasses import dataclass, field
 from datetime import datetime
+from io import StringIO
 from pathlib import Path
+from ssl import SSLContext
 from typing import Callable, Generic, Optional, TypeVar
 from uuid import UUID, uuid4
 
-from io import StringIO
-from bivalve.logging import LogManager
 from bivalve.datatypes import ArgV, ArgVQueue
+from bivalve.logging import LogManager
 
 # --------------------------------------------------------------------
 log = LogManager().get(__name__)
@@ -29,27 +29,28 @@ T = TypeVar("T")
 
 
 # --------------------------------------------------------------------
+@dataclass
 class SocketParams:
     """
     Encapsulates and validates the range of parameters available
     when connecting to or starting a server via sockets.
     """
 
-    def __init__(
-        self,
-        host: Optional[str] = None,
-        port: Optional[int] = None,
-        path: Optional[Path | str] = None,
-        ssl: Optional[ssl.SSLContext] = None,
-    ):
-        self.ssl = ssl
-        if host and port:
-            self.host = host
-            self.port = port
-        elif path:
-            self.path = path
-        else:
+    host: Optional[str] = None
+    port: Optional[int] = None
+    path: Optional[Path | str] = None
+    ssl: Optional[SSLContext] = None
+
+    def __post_init__(self):
+        if not self._validate():
             raise ValueError("Invalid socket params.")
+
+    def _validate(self) -> bool:
+        if self.host and self.port:
+            return True
+        elif self.path:
+            return True
+        return False
 
     @property
     def is_tcp(self):
@@ -61,7 +62,6 @@ class SocketParams:
 
     def __str__(self):
         sb = StringIO()
-        sb.write(f"<{self.__class__.__qualname__} ")
 
         if self.host and self.port:
             sb.write(f"{self.host}:{self.port}")
@@ -70,6 +70,12 @@ class SocketParams:
         else:
             sb.write("INVALID")
 
+        return sb.getvalue()
+
+    def __repr__(self):
+        sb = StringIO()
+        sb.write(f"<{self.__class__.__qualname__} ")
+        sb.write(str(self))
         sb.write(">")
         return sb.getvalue()
 
@@ -147,6 +153,14 @@ class Server:
     def close(self):
         self.asyncio_server.close()
 
+    def __repr__(self):
+        sb = StringIO()
+        sb.write(f"<{self.__class__.__qualname__} ")
+        sb.write(f"{self.params} ")
+        sb.write(f"id={self.id}")
+        sb.write(">")
+        return sb.getvalue()
+
 
 # --------------------------------------------------------------------
 @dataclass
@@ -166,7 +180,7 @@ class Stream:
         try:
             self.writer.close()
             await self.writer.wait_closed()
-        except Exception as e:
+        except Exception:
             log.exception(f"Failed to close stream: {self}.")
 
     @classmethod
@@ -182,6 +196,14 @@ class Stream:
             )
 
         return Stream(reader, writer, params)
+
+    def __repr__(self):
+        sb = StringIO()
+        sb.write(f"<{self.__class__.__qualname__} ")
+        sb.write(f"{self.params} ")
+        sb.write(f"id={self.id}")
+        sb.write(">")
+        return sb.getvalue()
 
 
 # --------------------------------------------------------------------
@@ -281,6 +303,14 @@ class StreamConnection(Connection):
     async def _send(self, *argv):
         self.stream.writer.write((shlex.join([str(s) for s in argv]) + "\n").encode())
         await self.stream.writer.drain()
+
+    def __repr__(self):
+        return repr(self.stream)
+        sb = StringIO()
+        sb.write(f"<{self.__class__.__qualname__} ")
+        sb.write(f"{self.stream.params}")
+        sb.write(">")
+        return sb.getvalue()
 
 
 # --------------------------------------------------------------------

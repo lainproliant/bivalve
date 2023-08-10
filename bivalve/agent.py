@@ -8,11 +8,12 @@
 # --------------------------------------------------------------------
 
 import asyncio
+import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Awaitable, Optional
 
-from bivalve.aio import BridgeConnection, Connection, Server, Stream, StreamConnection
+from bivalve.aio import Connection, Server, Stream, StreamConnection
 from bivalve.logging import LogManager
 from bivalve.util import Commands
 
@@ -33,8 +34,9 @@ class BivalveAgent:
     def __init__(
         self,
         max_peers=0,  # no maximum connections
-        syn_schedule=timedelta(seconds=15),
+        syn_schedule=timedelta(seconds=10),
         syn_timeout=timedelta(seconds=5),
+        syn_jitter=5,
     ):
         self._commands = Commands(self)
         self._conn_ctx_map: dict[Connection.ID, ConnectionContext] = {}
@@ -44,6 +46,7 @@ class BivalveAgent:
         self._shutdown_event = asyncio.Event()
         self._syn_schedule = syn_schedule
         self._syn_timeout = syn_timeout
+        self._syn_jitter = syn_jitter
 
     @property
     def running(self) -> bool:
@@ -156,7 +159,10 @@ class BivalveAgent:
 
             except Exception as e:
                 trash.append(ctx.conn)
-                log.error(f"Error managing connection for peer {ctx.conn.id}, closing connection.", e)
+                log.error(
+                    f"Error managing connection for peer {ctx.conn.id}, closing connection.",
+                    e,
+                )
 
         for conn in trash:
             await self._cleanup(conn, notify=False)
@@ -234,7 +240,11 @@ class BivalveAgent:
     async def cmd_ack(self, conn: Connection):
         ctx = self._conn_ctx_map[conn.id]
         ctx.ack_ttl = None
-        ctx.syn_at = datetime.now() + self._syn_schedule
+        ctx.syn_at = (
+            datetime.now()
+            + self._syn_schedule
+            + timedelta(seconds=random.randint(-self._syn_jitter, self._syn_jitter))
+        )
 
     async def cmd_bye(self, conn: Connection):
         self.disconnect(conn, notify=False)
