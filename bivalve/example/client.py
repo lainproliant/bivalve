@@ -35,7 +35,7 @@ class ExampleClient(BivalveAgent):
         if self.host and self.port:
             try:
                 await self.connect(host=self.host, port=self.port)
-            except Exception as e:
+            except Exception:
                 log.exception("Failed to connect to server.")
                 self.shutdown()
 
@@ -45,7 +45,7 @@ class ExampleClient(BivalveAgent):
         await super().run()
         thread.join()
 
-    async def on_client_disconnect(self, _):
+    def on_disconnect(self, _):
         self.shutdown()
 
     async def cmd_echo(self, _, msg: str):

@@ -15,7 +15,7 @@ from typing import Awaitable, Optional
 
 from bivalve.aio import Connection, Server, Stream, StreamConnection
 from bivalve.logging import LogManager
-from bivalve.util import Commands
+from bivalve.util import Commands, get_millis
 
 log = LogManager().get(__name__)
 
@@ -37,6 +37,7 @@ class BivalveAgent:
         syn_schedule=timedelta(seconds=10),
         syn_timeout=timedelta(seconds=5),
         syn_jitter=5,
+        sleep_schedule_ms=500,
     ):
         self._commands = Commands(self)
         self._conn_ctx_map: dict[Connection.ID, ConnectionContext] = {}
@@ -47,6 +48,7 @@ class BivalveAgent:
         self._syn_schedule = syn_schedule
         self._syn_timeout = syn_timeout
         self._syn_jitter = syn_jitter
+        self._sleep_schedule_ms = sleep_schedule_ms
 
     @property
     def running(self) -> bool:
@@ -124,7 +126,8 @@ class BivalveAgent:
         ctx = self._conn_ctx_map.get(conn.id)
         if ctx and ctx.task:
             ctx.task.cancel()
-        ctx.task = asyncio.create_task(self._cleanup(conn, notify))
+        if ctx:
+            ctx.task = asyncio.create_task(self._cleanup(conn, notify))
 
     async def _cleanup(self, conn: Connection, notify=True):
         if notify:
@@ -203,8 +206,10 @@ class BivalveAgent:
 
     async def run(self):
         while self.running:
+            now_ms = get_millis()
             await self.maintain()
-            await asyncio.sleep(0)
+            sleep_timeout = max(0, self._sleep_schedule_ms - (get_millis() - now_ms))
+            await asyncio.sleep(sleep_timeout / 1000)
 
     def shutdown(self):
         self._shutdown_event.set()

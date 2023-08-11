@@ -7,6 +7,7 @@
 # Distributed under terms of the MIT license.
 # --------------------------------------------------------------------
 
+import time
 import inspect
 from typing import Any
 
@@ -49,3 +50,11 @@ class Commands:
     def signatures(self):
         for key, value in sorted(self.map.items(), key=lambda x: x[0]):
             yield (key, inspect.signature(value))
+
+# --------------------------------------------------------------------
+def get_millis() -> int:
+    """
+    Get the number of milliseconds since the UNIX Epoch.
+    Useful for performance timing.
+    """
+    return time.time_ns() // 1000000
