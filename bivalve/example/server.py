@@ -51,6 +51,12 @@ class ExampleServer(BivalveAgent):
     async def cmd_quit(self, conn: Connection):
         await self.disconnect(conn)
 
+    def fn_add(self, conn: Connection, *argv):
+        total = 0
+        for arg in argv:
+            total += int(arg)
+        return total
+
 
 # --------------------------------------------------------------------
 def main():

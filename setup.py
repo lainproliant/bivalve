@@ -11,7 +11,7 @@ with open(path.join(here, "README.md"), encoding="utf-8") as f:
 
 setup(
     name="bivalve",
-    version="0.9",
+    version="0.10",
     description="A bi-directional shell-like socket protocol framework using asyncio.",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -28,7 +28,7 @@ setup(
     ],
     keywords="network sockets protocol shell",
     packages=find_packages(),
-    install_requires=['shortuuid>=1.0.11'],
+    install_requires=[],
     extras_require={},
     package_data={"bivalve": ["LICENSE"]},
     data_files=[],

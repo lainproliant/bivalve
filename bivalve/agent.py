@@ -18,6 +18,7 @@ from bivalve.aio import Server, Stream, Connection, StreamConnection
 from bivalve.logging import LogManager
 from bivalve.util import Commands, get_millis, is_iterable
 from bivalve.call import Call, Response
+from bivalve.datatypes import ArgV
 
 log = LogManager().get(__name__)
 
@@ -258,11 +259,11 @@ class BivalveAgent:
             *(ctx.conn.send(*argv) for ctx in self._conn_ctx_map.values())
         )
 
-    def call(
+    async def call(
         self,
         conn_id: int,
         function: str,
-        *argv,
+        params: ArgV,
         timeout_ms: int = 10000,
     ) -> Call:
         ctx = self._conn_ctx_map.get(conn_id)
