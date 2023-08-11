@@ -8,6 +8,9 @@
 # --------------------------------------------------------------------
 
 import asyncio
+import logging
+import sys
+
 from bivalve.logging import LogManager
 
 from .client import ExampleClient
@@ -17,6 +20,10 @@ from .server import ExampleServer
 # --------------------------------------------------------------------
 async def main():
     LogManager().setup()
+
+    if "--debug" in sys.argv:
+        LogManager().set_level(logging.DEBUG)
+
     server = ExampleServer()
     client = ExampleClient()
     server.add_connection(client.bridge())

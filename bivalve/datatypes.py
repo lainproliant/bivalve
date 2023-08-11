@@ -6,6 +6,53 @@
 # --------------------------------------------------------------------
 
 import asyncio
+import threading
+from typing import Callable, Generic, Optional, TypeVar
 
+from bivalve.util import get_millis
+
+# --------------------------------------------------------------------
+T = TypeVar("T")
 ArgV = list[str]
 ArgVQueue = asyncio.Queue[ArgV]
+
+
+# --------------------------------------------------------------------
+class AtomicValue(Generic[T]):
+    """
+    A value with methods to support fetching and acting upon it atomically
+    across multiple async coroutines.
+    """
+
+    def __init__(self, value: T):
+        self.value = value
+        self.lock = asyncio.Lock()
+
+    async def __call__(self):
+        async with self.lock:
+            return self.value
+
+    async def set(self, value: T):
+        async with self.lock:
+            self.value = value
+
+    async def mutate(self, mutator: Callable[[T], T]):
+        async with self.lock:
+            self.value = mutator(self.value)
+
+
+# --------------------------------------------------------------------
+class ThreadAtomicCounter:
+    """
+    A thread-safe atomic auto-incrementing counter starting at 0,
+    yielding numbers starting at 1 via `next()`.
+    """
+
+    def __init__(self):
+        self.value = 0
+        self.lock = threading.Lock()
+
+    def next(self):
+        with self.lock:
+            self.value += 1
+            return self.value

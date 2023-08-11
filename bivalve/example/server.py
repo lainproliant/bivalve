@@ -8,16 +8,19 @@
 # --------------------------------------------------------------------
 
 import asyncio
+import logging
 import signal
+import sys
 import tracemalloc
 
-from bivalve.aio import Connection
 from bivalve.agent import BivalveAgent
+from bivalve.aio import Connection
 from bivalve.logging import LogManager
 
 # --------------------------------------------------------------------
 tracemalloc.start()
 log = LogManager().get(__name__)
+
 
 # --------------------------------------------------------------------
 class ExampleServer(BivalveAgent):
@@ -39,6 +42,9 @@ class ExampleServer(BivalveAgent):
     def on_connect(self, conn: Connection):
         self.schedule(conn.send("echo", "Hello, there!"))
 
+    def fn_add(self, conn: Connection, *argv):
+        return sum([int(s) for s in argv])
+
     async def cmd_echo(self, conn: Connection, msg: str):
         await conn.send("echo", msg)
 
@@ -52,9 +58,13 @@ def main():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
+    if "--debug" in sys.argv:
+        LogManager().set_level(logging.DEBUG)
+
     server = ExampleServer("localhost", 9595)
     loop.run_until_complete(server.run())
 
+
 # --------------------------------------------------------------------
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

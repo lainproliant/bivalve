@@ -26,7 +26,7 @@ class LogManager(Borg):
 
         self._filename: Optional[str] = None
         self._format = "%(asctime)s [%(levelname)s]: %(message)s"
-        self._level = logging.DEBUG
+        self._level = logging.INFO
         self._handlers: list[logging.Handler] = []
         self._special_handlers: list[logging.Handler] = []
         self._has_console_handler = False

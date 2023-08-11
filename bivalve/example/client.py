@@ -8,16 +8,20 @@
 # --------------------------------------------------------------------
 
 import asyncio
+import logging
 import shlex
 import signal
+import sys
 import threading
 
 from bivalve.agent import BivalveAgent
+from bivalve.aio import Connection
 from bivalve.logging import LogManager
 from bivalve.nio import NonBlockingTextInput
 
 # --------------------------------------------------------------------
 log = LogManager().get(__name__)
+
 
 # --------------------------------------------------------------------
 class ExampleClient(BivalveAgent):
@@ -45,6 +49,13 @@ class ExampleClient(BivalveAgent):
         await super().run()
         thread.join()
 
+    def on_connect(self, conn: Connection):
+        self.schedule(self.call_add(conn.id))
+
+    async def call_add(self, conn_id):
+        result = await self.call(conn_id, "add", 1, 2, 3).future
+        print("The result was:", result)
+
     def on_disconnect(self, _):
         self.shutdown()
 
@@ -63,12 +74,17 @@ class ExampleClient(BivalveAgent):
 # --------------------------------------------------------------------
 def main():
     LogManager().setup()
+
+    if "--debug" in sys.argv:
+        LogManager().set_level(logging.DEBUG)
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
     client = ExampleClient("localhost", 9595)
     loop.run_until_complete(client.run())
 
+
 # --------------------------------------------------------------------
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

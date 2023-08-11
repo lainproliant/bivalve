@@ -7,9 +7,11 @@
 # Distributed under terms of the MIT license.
 # --------------------------------------------------------------------
 
+import asyncio
 import time
+import json
 import inspect
-from typing import Any
+from typing import Any, Sequence
 
 
 # --------------------------------------------------------------------
@@ -51,6 +53,26 @@ class Commands:
         for key, value in sorted(self.map.items(), key=lambda x: x[0]):
             yield (key, inspect.signature(value))
 
+
+# --------------------------------------------------------------------
+def is_iterable(obj: Any) -> bool:
+    """Determine if the given object is an iterable sequence other than a string or byte array."""
+    return (
+        isinstance(obj, Sequence)
+        and not isinstance(obj, (str, bytes, bytearray))
+        or inspect.isgenerator(obj)
+    )
+
+
+# --------------------------------------------------------------------
+def str_escape(s: str) -> str:
+    """
+    Use the JSON library to escape a string for use as a literal.
+    """
+
+    return json.dumps(s).strip('"')
+
+
 # --------------------------------------------------------------------
 def get_millis() -> int:
     """
@@ -58,3 +80,12 @@ def get_millis() -> int:
     Useful for performance timing.
     """
     return time.time_ns() // 1000000
+
+
+# --------------------------------------------------------------------
+def new_future() -> asyncio.Future:
+    """
+    Creates a future with the current event loop.
+    """
+    loop = asyncio.get_event_loop()
+    return loop.create_future()

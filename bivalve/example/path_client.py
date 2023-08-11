@@ -8,8 +8,10 @@
 # --------------------------------------------------------------------
 
 import asyncio
+import logging
 import shlex
 import signal
+import sys
 import threading
 
 from bivalve.agent import BivalveAgent
@@ -18,6 +20,7 @@ from bivalve.nio import NonBlockingTextInput
 
 # --------------------------------------------------------------------
 log = LogManager().get(__name__)
+
 
 # --------------------------------------------------------------------
 class ExamplePathClient(BivalveAgent):
@@ -43,7 +46,7 @@ class ExamplePathClient(BivalveAgent):
         await super().run()
         thread.join()
 
-    async def on_client_disconnect(self, _):
+    async def on_disconnect(self, _):
         self.shutdown()
 
     async def cmd_echo(self, _, msg: str):
@@ -64,9 +67,13 @@ def main():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
+    if "--debug" in sys.argv:
+        LogManager().set_level(logging.DEBUG)
+
     client = ExamplePathClient("./unix.sock")
     loop.run_until_complete(client.run())
 
+
 # --------------------------------------------------------------------
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
