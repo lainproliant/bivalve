@@ -15,9 +15,10 @@ from datetime import datetime, timedelta
 from typing import Awaitable, Optional
 
 from bivalve.aio import Server, Stream, Connection, StreamConnection
-from bivalve.logs import LogManager
+from bivalve.logging import LogManager
 from bivalve.util import Commands, get_millis, is_iterable
 from bivalve.call import Call, Response
+from bivalve.datatypes import id_to_str
 
 log = LogManager().get(__name__)
 
@@ -40,7 +41,7 @@ class BivalveAgent:
         syn_schedule=timedelta(seconds=10),
         syn_timeout=timedelta(seconds=5),
         syn_jitter=5,
-        sleep_schedule_ms=500,
+        loop_duration_ms=150,
     ):
         self._commands = Commands(self)
         self._conn_ctx_map: dict[Connection.ID, ConnectionContext] = {}
@@ -49,7 +50,7 @@ class BivalveAgent:
         self._scheduled: list[Awaitable] = []
         self._servers: list[Server] = []
         self._shutdown_event = asyncio.Event()
-        self._sleep_schedule_ms = sleep_schedule_ms
+        self._loop_duration_ms = loop_duration_ms
         self._syn_jitter = syn_jitter
         self._syn_schedule = syn_schedule
         self._syn_timeout = syn_timeout
@@ -115,6 +116,11 @@ class BivalveAgent:
         loop.call_soon(self.on_connect, conn)
 
     def schedule(self, awaitable: Awaitable):
+        """
+        Schedule a task to be run during the next
+        maintenance cycle, which runs approx every
+        `self.loop_duration_ms` milliseconds.
+        """
         self._scheduled.append(awaitable)
 
     def on_connect(self, conn: Connection):
@@ -141,7 +147,7 @@ class BivalveAgent:
 
         if conn.id in self._conn_ctx_map:
             del self._conn_ctx_map[conn.id]
-            log.info(f"Peer disconnected: {conn.id}.")
+            log.info(f"Peer disconnected: {conn.sid}.")
             loop = asyncio.get_running_loop()
             loop.call_soon(self.on_disconnect, conn)
 
@@ -157,7 +163,7 @@ class BivalveAgent:
         for ctx in self._conn_ctx_map.values():
             try:
                 if ctx.ack_ttl and ctx.ack_ttl <= now:
-                    log.warning(f"Peer keepalive timed out: {ctx.conn.id}")
+                    log.warning(f"Peer keepalive timed out: {ctx.conn.sid}")
                     trash.append(ctx.conn)
                 elif ctx.syn_at <= now:
                     await ctx.conn.send("syn")
@@ -168,7 +174,7 @@ class BivalveAgent:
             except Exception:
                 trash.append(ctx.conn)
                 log.exception(
-                    f"Error managing connection for peer {ctx.conn.id}, closing connection."
+                    f"Error managing connection for peer {ctx.conn.sid}, closing connection."
                 )
 
         for conn in trash:
@@ -215,14 +221,14 @@ class BivalveAgent:
 
             except ConnectionError:
                 if await conn.alive():
-                    log.exception(f"Connection lost with peer {conn.id}.")
+                    log.exception(f"Connection lost with peer {conn.sid}.")
                 await self._cleanup(conn, notify=False)
 
     async def run(self):
         while self.running:
             now_ms = get_millis()
             await self.maintain()
-            sleep_timeout = max(0, self._sleep_schedule_ms - (get_millis() - now_ms))
+            sleep_timeout = max(0, self._loop_duration_ms - (get_millis() - now_ms))
             await asyncio.sleep(sleep_timeout / 1000)
 
     def shutdown(self):
@@ -262,7 +268,7 @@ class BivalveAgent:
     ) -> Call:
         ctx = self._conn_ctx_map.get(conn_id)
         if ctx is None:
-            raise ValueError("Not a connected peer: `{conn.id}`.")
+            raise ValueError("Not a connected peer: `{conn.sid}`.")
 
         call = Call()
         if timeout is not None:
@@ -328,7 +334,7 @@ class BivalveAgent:
         ctx = self._conn_ctx_map[conn.id]
 
         if call_id not in ctx.call_map:
-            log.debug(f"Received return for an unknown call: `{call_id}`, ignoring.")
+            log.debug(f"Received return for an unknown call: `{id_to_str(call_id)}`, ignoring.")
             return
 
         call = ctx.call_map[call_id]

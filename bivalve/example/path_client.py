@@ -43,7 +43,7 @@ class ExamplePathClient(BivalveAgent):
         await super().run()
         thread.join()
 
-    async def on_client_disconnect(self, _):
+    async def on_disconnect(self, _):
         self.shutdown()
 
     async def cmd_echo(self, _, msg: str):

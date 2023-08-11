@@ -15,17 +15,13 @@ from datetime import datetime
 from io import StringIO
 from pathlib import Path
 from ssl import SSLContext
-from typing import Callable, Generic, Optional, TypeVar
-from uuid import UUID, uuid4
+from typing import Optional
 
-from bivalve.datatypes import ArgV, ArgVQueue
+from bivalve.datatypes import ArgV, ArgVQueue, AtomicValue, BaseID, id_to_str, new_id
 from bivalve.logging import LogManager
 
 # --------------------------------------------------------------------
 log = LogManager().get(__name__)
-BaseID = UUID
-
-T = TypeVar("T")
 
 
 # --------------------------------------------------------------------
@@ -81,30 +77,6 @@ class SocketParams:
 
 
 # --------------------------------------------------------------------
-class AtomicValue(Generic[T]):
-    """
-    A value with methods to support fetching and acting upon it atomically
-    across multiple async coroutines.
-    """
-
-    def __init__(self, value: T):
-        self.value = value
-        self.lock = asyncio.Lock()
-
-    async def __call__(self):
-        async with self.lock:
-            return self.value
-
-    async def set(self, value: T):
-        async with self.lock:
-            self.value = value
-
-    async def mutate(self, mutator: Callable[[T], T]):
-        async with self.lock:
-            self.value = mutator(self.value)
-
-
-# --------------------------------------------------------------------
 @dataclass
 class Server:
     """
@@ -115,7 +87,11 @@ class Server:
     ID = BaseID
     params: SocketParams
     asyncio_server: asyncio.Server
-    id: UUID = field(default_factory=uuid4)
+    id: ID = field(default_factory=new_id)
+
+    @property
+    def sid(self):
+        return id_to_str(self.id)
 
     @classmethod
     def _wrap_callback(self, params: SocketParams, callback):
@@ -157,7 +133,7 @@ class Server:
         sb = StringIO()
         sb.write(f"<{self.__class__.__qualname__} ")
         sb.write(f"{self.params} ")
-        sb.write(f"id={self.id}")
+        sb.write(f"id={self.sid}")
         sb.write(">")
         return sb.getvalue()
 
@@ -174,7 +150,11 @@ class Stream:
     reader: asyncio.StreamReader
     writer: asyncio.StreamWriter
     params: SocketParams
-    id: UUID = field(default_factory=uuid4)
+    id: ID = field(default_factory=new_id)
+
+    @property
+    def sid(self):
+        return id_to_str(self.id)
 
     async def close(self):
         try:
@@ -201,7 +181,7 @@ class Stream:
         sb = StringIO()
         sb.write(f"<{self.__class__.__qualname__} ")
         sb.write(f"{self.params} ")
-        sb.write(f"id={self.id}")
+        sb.write(f"id={self.sid}")
         sb.write(">")
         return sb.getvalue()
 
@@ -218,6 +198,10 @@ class Connection:
     def __init__(self, id: ID):
         self.id = id
         self.alive = AtomicValue(True)
+
+    @property
+    def sid(self):
+        return id_to_str(self.id)
 
     @classmethod
     async def connect(cls, **kwargs) -> "Connection":
@@ -240,12 +224,12 @@ class Connection:
         argv = [*argv]
         await self._send(*argv)
 
-        log.debug(f"Sent {argv} to {self.id}")
+        log.debug(f"Sent {argv} to {self.sid}")
 
     async def recv(self) -> ArgV:
         argv = await self._recv()
         assert argv
-        log.debug(f"Received {argv} from {self.id}")
+        log.debug(f"Received {argv} from {self.sid}")
         return argv
 
     async def try_send(self, *argv):

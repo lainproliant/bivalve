@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum, auto
 
-from bivalve.datatypes import ArgV, AtomicResult, BaseID, new_id
+from bivalve.datatypes import ArgV, AtomicResult, BaseID, id_to_str, new_id
 
 
 # --------------------------------------------------------------------
@@ -38,6 +38,10 @@ class Call:
     expires_at: datetime = datetime.max
     id: ID = field(default_factory=new_id)
     response: AtomicResult[Response] = AtomicResult()
+
+    @property
+    def sid(self):
+        return id_to_str(self.id)
 
     def to_argv(self) -> ArgV:
         return ["call", self.id, *[str(p) for p in self.params]]
