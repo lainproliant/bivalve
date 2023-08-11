@@ -8,8 +8,17 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum, auto
+from io import StringIO
 
-from bivalve.datatypes import ArgV, AtomicResult, BaseID, id_to_str, new_id
+from bivalve.datatypes import (
+    ArgV,
+    AtomicResult,
+    ThreadAtomicCounter,
+)
+from bivalve.util import str_escape
+
+# --------------------------------------------------------------------
+CALL_AUTO_INCREMENT = ThreadAtomicCounter()
 
 
 # --------------------------------------------------------------------
@@ -32,24 +41,33 @@ class Response:
 # --------------------------------------------------------------------
 @dataclass
 class Call:
-    ID = BaseID
     function: str
     params: ArgV
     expires_at: datetime = datetime.max
-    id: ID = field(default_factory=new_id)
+    id: int = field(default_factory=CALL_AUTO_INCREMENT.next)
     response: AtomicResult[Response] = AtomicResult()
 
-    @property
-    def sid(self):
-        return id_to_str(self.id)
-
     def to_argv(self) -> ArgV:
-        return ["call", self.id, *[str(p) for p in self.params]]
+        return ["call", str(self.id), *[str(p) for p in self.params]]
+
+    def __str__(self):
+        sb = StringIO()
+        sb.write(f"{self.function}(")
+        sb.write(", ".join([f'"{str_escape(p)}"' for p in self.params]))
+        sb.write(")")
+        return sb.getvalue()
+
+    def __repr__(self):
+        sb = StringIO()
+        sb.write(f"<{self.__class__.__qualname__} ")
+        sb.write(str(self))
+        sb.write(f" id={self.id}")
+        sb.write(">")
 
 
 # --------------------------------------------------------------------
 class CallFailedError(Exception):
     def __init__(self, call: Call, details: ArgV):
-        super().__init__(f"Call to agent function `{call.function}` failed.")
+        super().__init__(f"Call to agent function `{call}` failed.")
         self.call = call
         self.details = details

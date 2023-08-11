@@ -8,6 +8,7 @@
 # --------------------------------------------------------------------
 
 import time
+import json
 import inspect
 from typing import Any
 
@@ -60,6 +61,15 @@ def is_iterable(obj: Any) -> bool:
         and not isinstance(obj, (str, bytes, bytearray))
         or inspect.isgenerator(obj)
     )
+
+
+# --------------------------------------------------------------------
+def str_escape(s: str) -> str:
+    """
+    Use the JSON library to escape a string for use as a literal.
+    """
+
+    return json.dumps(s).strip('"')
 
 
 # --------------------------------------------------------------------

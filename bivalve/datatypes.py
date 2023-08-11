@@ -6,10 +6,8 @@
 # --------------------------------------------------------------------
 
 import asyncio
+import threading
 from typing import Callable, Generic, Optional, TypeVar
-from uuid import UUID, uuid4
-
-import shortuuid
 
 from bivalve.util import get_millis
 
@@ -17,22 +15,6 @@ from bivalve.util import get_millis
 T = TypeVar("T")
 ArgV = list[str]
 ArgVQueue = asyncio.Queue[ArgV]
-BaseID = UUID
-
-
-# --------------------------------------------------------------------
-def new_id() -> BaseID:
-    return uuid4()
-
-
-# --------------------------------------------------------------------
-def id_to_str(id: BaseID) -> str:
-    return shortuuid.encode(id)
-
-
-# --------------------------------------------------------------------
-def str_to_id(s: str) -> BaseID:
-    return shortuuid.decode(s)
 
 
 # --------------------------------------------------------------------
@@ -60,22 +42,6 @@ class AtomicValue(Generic[T]):
 
 
 # --------------------------------------------------------------------
-class AtomicCounter:
-    """
-    An atomic auto-incrementing counter starting at 0.
-    """
-
-    def __init__(self, value: T):
-        self.value = -1
-        self.lock = asyncio.Lock()
-
-    async def __call__(self):
-        async with self.lock:
-            self.value += 1
-            return self.value
-
-
-# --------------------------------------------------------------------
 class AtomicResult(Generic[T], AtomicValue[Optional[T]]):
     def __init__(self):
         super().__init__(None)
@@ -93,3 +59,20 @@ class AtomicResult(Generic[T], AtomicValue[Optional[T]]):
                     f"Timed out after {timeout_ms}ms waiting for AtomicResult."
                 )
         return await super().__call__()
+
+
+# --------------------------------------------------------------------
+class ThreadAtomicCounter:
+    """
+    A thread-safe atomic auto-incrementing counter starting at 0,
+    yielding numbers starting at 1 via `next()`.
+    """
+
+    def __init__(self):
+        self.value = 0
+        self.lock = threading.Lock()
+
+    def next(self):
+        with self.lock:
+            self.value += 1
+            return self.value

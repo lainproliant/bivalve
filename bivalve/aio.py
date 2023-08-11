@@ -17,12 +17,19 @@ from pathlib import Path
 from ssl import SSLContext
 from typing import Optional
 
-from bivalve.datatypes import ArgV, ArgVQueue, AtomicValue, BaseID, id_to_str, new_id
+from bivalve.datatypes import (
+    ArgV,
+    ArgVQueue,
+    AtomicValue,
+    ThreadAtomicCounter,
+)
 from bivalve.logging import LogManager
 
 # --------------------------------------------------------------------
 log = LogManager().get(__name__)
 
+SERVER_AUTO_ID = ThreadAtomicCounter()
+STREAM_AUTO_ID = ThreadAtomicCounter()
 
 # --------------------------------------------------------------------
 @dataclass
@@ -84,14 +91,9 @@ class Server:
     that were used to establish it.
     """
 
-    ID = BaseID
     params: SocketParams
     asyncio_server: asyncio.Server
-    id: ID = field(default_factory=new_id)
-
-    @property
-    def sid(self):
-        return id_to_str(self.id)
+    id: int = field(default_factory=SERVER_AUTO_ID.next)
 
     @classmethod
     def _wrap_callback(self, params: SocketParams, callback):
@@ -133,7 +135,7 @@ class Server:
         sb = StringIO()
         sb.write(f"<{self.__class__.__qualname__} ")
         sb.write(f"{self.params} ")
-        sb.write(f"id={self.sid}")
+        sb.write(f"id={self.id}")
         sb.write(">")
         return sb.getvalue()
 
@@ -146,15 +148,10 @@ class Stream:
     for an open connection and the params used to establish it.
     """
 
-    ID = BaseID
     reader: asyncio.StreamReader
     writer: asyncio.StreamWriter
     params: SocketParams
-    id: ID = field(default_factory=new_id)
-
-    @property
-    def sid(self):
-        return id_to_str(self.id)
+    id: int = field(default_factory=STREAM_AUTO_ID.next)
 
     async def close(self):
         try:
@@ -181,7 +178,7 @@ class Stream:
         sb = StringIO()
         sb.write(f"<{self.__class__.__qualname__} ")
         sb.write(f"{self.params} ")
-        sb.write(f"id={self.sid}")
+        sb.write(f"id={self.id}")
         sb.write(">")
         return sb.getvalue()
 
@@ -193,15 +190,9 @@ class Connection:
     shell-style commands.
     """
 
-    ID = BaseID
-
-    def __init__(self, id: ID):
+    def __init__(self, id: int):
         self.id = id
         self.alive = AtomicValue(True)
-
-    @property
-    def sid(self):
-        return id_to_str(self.id)
 
     @classmethod
     async def connect(cls, **kwargs) -> "Connection":
@@ -224,12 +215,12 @@ class Connection:
         argv = [*argv]
         await self._send(*argv)
 
-        log.debug(f"Sent {argv} to {self.sid}")
+        log.debug(f"Sent {argv} to {self}")
 
     async def recv(self) -> ArgV:
         argv = await self._recv()
         assert argv
-        log.debug(f"Received {argv} from {self.sid}")
+        log.debug(f"Received {argv} from {self}")
         return argv
 
     async def try_send(self, *argv):
@@ -312,7 +303,7 @@ class BridgeConnection(Connection):
         recv_queue: ArgVQueue,
         poll_timeout: float = 1.0,
     ):
-        super().__init__(uuid4())
+        super().__init__(STREAM_AUTO_ID.next())
         self.send_queue = send_queue
         self.recv_queue = recv_queue
         self.poll_timeout = poll_timeout

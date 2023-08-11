@@ -18,7 +18,6 @@ from bivalve.aio import Server, Stream, Connection, StreamConnection
 from bivalve.logging import LogManager
 from bivalve.util import Commands, get_millis, is_iterable
 from bivalve.call import Call, Response
-from bivalve.datatypes import id_to_str
 
 log = LogManager().get(__name__)
 
@@ -30,7 +29,7 @@ class ConnectionContext:
     task: asyncio.Task
     ack_ttl: Optional[datetime] = None
     syn_at: datetime = datetime.min
-    call_map: dict[Call.ID, Call] = field(default_factory=dict)
+    call_map: dict[int, Call] = field(default_factory=dict)
 
 
 # --------------------------------------------------------------------
@@ -44,7 +43,7 @@ class BivalveAgent:
         loop_duration_ms=150,
     ):
         self._commands = Commands(self)
-        self._conn_ctx_map: dict[Connection.ID, ConnectionContext] = {}
+        self._conn_ctx_map: dict[int, ConnectionContext] = {}
         self._functions = Commands(self, prefix="fn_")
         self._max_peers = max_peers
         self._scheduled: list[Awaitable] = []
@@ -147,7 +146,7 @@ class BivalveAgent:
 
         if conn.id in self._conn_ctx_map:
             del self._conn_ctx_map[conn.id]
-            log.info(f"Peer disconnected: {conn.sid}.")
+            log.info(f"Peer disconnected: {conn}")
             loop = asyncio.get_running_loop()
             loop.call_soon(self.on_disconnect, conn)
 
@@ -163,7 +162,7 @@ class BivalveAgent:
         for ctx in self._conn_ctx_map.values():
             try:
                 if ctx.ack_ttl and ctx.ack_ttl <= now:
-                    log.warning(f"Peer keepalive timed out: {ctx.conn.sid}")
+                    log.warning(f"Peer keepalive timed out: {ctx.conn.id}")
                     trash.append(ctx.conn)
                 elif ctx.syn_at <= now:
                     await ctx.conn.send("syn")
@@ -174,7 +173,7 @@ class BivalveAgent:
             except Exception:
                 trash.append(ctx.conn)
                 log.exception(
-                    f"Error managing connection for peer {ctx.conn.sid}, closing connection."
+                    f"Error managing connection for peer {ctx.conn.id}, closing connection."
                 )
 
         for conn in trash:
@@ -184,7 +183,7 @@ class BivalveAgent:
             await self._shutdown()
 
     def _cleanup_calls(self, now: datetime, ctx: ConnectionContext):
-        trash: list[Call.ID] = []
+        trash: list[int] = []
 
         for call in ctx.call_map.values():
             if now >= call.expires_at:
@@ -221,7 +220,7 @@ class BivalveAgent:
 
             except ConnectionError:
                 if await conn.alive():
-                    log.exception(f"Connection lost with peer {conn.sid}.")
+                    log.exception(f"Connection lost with peer {conn.id}.")
                 await self._cleanup(conn, notify=False)
 
     async def run(self):
@@ -261,14 +260,14 @@ class BivalveAgent:
 
     async def call(
         self,
-        conn_id: Connection.ID,
+        conn_id: int,
         function: str,
         *argv,
         timeout: Optional[timedelta] = None,
     ) -> Call:
         ctx = self._conn_ctx_map.get(conn_id)
         if ctx is None:
-            raise ValueError("Not a connected peer: `{conn.sid}`.")
+            raise ValueError("Not a connected peer: id={conn.id}.")
 
         call = Call()
         if timeout is not None:
@@ -296,7 +295,7 @@ class BivalveAgent:
         function = self._functions.get[fn_name]
         if function is None:
             log.debug(
-                f"Received call for an undefined function `{fn_name}`: `{call_id}`"
+                f"Received call for an undefined function `{fn_name}` id={call_id}"
             )
             conn.send(
                 "return",
@@ -329,14 +328,11 @@ class BivalveAgent:
             conn.send("return", call_id, Response.Code.OK, str(result))
 
     async def cmd_return(
-        self, conn: Connection, call_id: str, response_code: str, *argv
+        self, conn: Connection, call_id_str: str, response_code: str, *argv
     ):
         ctx = self._conn_ctx_map[conn.id]
 
-        if call_id not in ctx.call_map:
-            log.debug(f"Received return for an unknown call: `{id_to_str(call_id)}`, ignoring.")
-            return
-
+        call_id = int(call_id_str)
         call = ctx.call_map[call_id]
         await call.response.set(Response(Response.Code(response_code), [*argv]))
         del ctx.call_map[call_id]
