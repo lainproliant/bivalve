@@ -162,7 +162,7 @@ class BivalveAgent:
         for ctx in self._conn_ctx_map.values():
             try:
                 if ctx.ack_ttl and ctx.ack_ttl <= now:
-                    log.warning(f"Peer keepalive timed out: {ctx.conn.id}")
+                    log.warning(f"Peer keepalive timed out: {ctx.conn}")
                     trash.append(ctx.conn)
                 elif ctx.syn_at <= now:
                     await ctx.conn.send("syn")
@@ -173,7 +173,7 @@ class BivalveAgent:
             except Exception:
                 trash.append(ctx.conn)
                 log.exception(
-                    f"Error managing connection for peer {ctx.conn.id}, closing connection."
+                    f"Error managing connection for peer, closing connection: {ctx.conn}"
                 )
 
         for conn in trash:
