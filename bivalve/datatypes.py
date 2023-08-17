@@ -9,8 +9,6 @@ import asyncio
 import threading
 from typing import Callable, Generic, Optional, TypeVar
 
-from bivalve.util import get_millis
-
 # --------------------------------------------------------------------
 T = TypeVar("T")
 ArgV = list[str]
