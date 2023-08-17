@@ -42,6 +42,33 @@ class AtomicValue(Generic[T]):
 
 
 # --------------------------------------------------------------------
+class AtomicBox(Generic[T]):
+    """
+    A single-item container with methods to support fetching and updating the
+    stored contents atomically in an async context.
+    """
+
+    def __init__(self):
+        self._value: AtomicValue[Optional[T]] = AtomicValue(None)
+
+    async def is_empty(self) -> bool:
+        value = await self._value()
+        return value is None
+
+    async def get(self) -> T:
+        value = await self._value()
+        if value is None:
+            raise ValueError("No value has been supplied yet.")
+        return value
+
+    async def set(self, value: T):
+        value = await self._value.set(value)
+
+    async def clear(self):
+        await self._value.set(None)
+
+
+# --------------------------------------------------------------------
 class ThreadAtomicCounter:
     """
     A thread-safe atomic auto-incrementing counter starting at 0,
