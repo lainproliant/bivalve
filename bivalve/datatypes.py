@@ -42,26 +42,6 @@ class AtomicValue(Generic[T]):
 
 
 # --------------------------------------------------------------------
-class AtomicResult(Generic[T], AtomicValue[Optional[T]]):
-    def __init__(self):
-        super().__init__(None)
-
-    async def has_result(self):
-        value = await super().__call__()
-        return value is not None
-
-    async def __call__(self, sleep_ms=50, timeout_ms=0):
-        start_ms = get_millis()
-        while not await self.has_result():
-            await asyncio.sleep(sleep_ms / 1000)
-            if timeout_ms > 0 and (get_millis() - start_ms) >= timeout_ms:
-                raise TimeoutError(
-                    f"Timed out after {timeout_ms}ms waiting for AtomicResult."
-                )
-        return await super().__call__()
-
-
-# --------------------------------------------------------------------
 class ThreadAtomicCounter:
     """
     A thread-safe atomic auto-incrementing counter starting at 0,

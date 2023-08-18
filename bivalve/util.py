@@ -10,7 +10,7 @@
 import time
 import json
 import inspect
-from typing import Any
+from typing import Any, Sequence
 
 
 # --------------------------------------------------------------------

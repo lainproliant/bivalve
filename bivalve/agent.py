@@ -18,6 +18,7 @@ from bivalve.aio import Server, Stream, Connection, StreamConnection
 from bivalve.logging import LogManager
 from bivalve.util import Commands, get_millis, is_iterable
 from bivalve.call import Call, Response
+from bivalve.datatypes import ArgV
 
 log = LogManager().get(__name__)
 
@@ -187,6 +188,7 @@ class BivalveAgent:
 
         for call in ctx.call_map.values():
             if now >= call.expires_at:
+                call.future.set_exception(TimeoutError("Call response timed out."))
                 trash.append(call.id)
 
         for call_id in trash:
@@ -262,19 +264,19 @@ class BivalveAgent:
         self,
         conn_id: int,
         function: str,
-        *argv,
+        params: ArgV,
+        future: asyncio.Future[Response],
         timeout: Optional[timedelta] = None,
-    ) -> Call:
+    ):
         ctx = self._conn_ctx_map.get(conn_id)
         if ctx is None:
             raise ValueError("Not a connected peer: id={conn.id}.")
 
-        call = Call()
+        call = Call(function, params, future)
         if timeout is not None:
             call.expires_at = datetime.now() + timeout
         ctx.call_map[call.id] = call
-        await ctx.conn.send(*call.to_argv())
-        return call
+        await ctx.conn.send(*call.to_command_argv())
 
     async def cmd_syn(self, conn: Connection):
         await conn.send("ack")
@@ -292,12 +294,12 @@ class BivalveAgent:
         self.disconnect(conn, notify=False)
 
     async def cmd_call(self, conn: Connection, call_id: str, fn_name: str, *argv):
-        function = self._functions.get[fn_name]
+        function = self._functions.get(fn_name)
         if function is None:
             log.debug(
                 f"Received call for an undefined function `{fn_name}` id={call_id}"
             )
-            conn.send(
+            await conn.send(
                 "return",
                 call_id,
                 Response.Code.ERROR,
@@ -307,13 +309,13 @@ class BivalveAgent:
 
         try:
             if inspect.iscoroutinefunction(function):
-                result = await function(conn, call_id, *argv)
+                result = await function(conn, *argv)
             else:
-                result = function(conn, call_id, *argv)
+                result = function(conn, *argv)
 
         except Exception as e:
             log.exception("Error processing peer call to function `{fn_name}`.")
-            conn.send(
+            await conn.send(
                 "return",
                 call_id,
                 Response.Code.ERROR,
@@ -323,9 +325,9 @@ class BivalveAgent:
             return
 
         if is_iterable(result):
-            conn.send("return", call_id, Response.Code.OK, *[str(r) for r in result])
+            await conn.send("return", call_id, Response.Code.OK, *[str(r) for r in result])
         else:
-            conn.send("return", call_id, Response.Code.OK, str(result))
+            await conn.send("return", call_id, Response.Code.OK, str(result))
 
     async def cmd_return(
         self, conn: Connection, call_id_str: str, response_code: str, *argv
@@ -334,5 +336,9 @@ class BivalveAgent:
 
         call_id = int(call_id_str)
         call = ctx.call_map[call_id]
-        await call.response.set(Response(Response.Code(response_code), [*argv]))
+        import pdb
+        pdb.set_trace()
+        call.future.set_result(Response(
+            Response.Code(response_code), [*argv]
+        ))
         del ctx.call_map[call_id]

@@ -5,16 +5,13 @@
 # Date: Thursday August 10, 2023
 # --------------------------------------------------------------------
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum, auto
 from io import StringIO
 
-from bivalve.datatypes import (
-    ArgV,
-    AtomicResult,
-    ThreadAtomicCounter,
-)
+from bivalve.datatypes import ArgV, ThreadAtomicCounter
 from bivalve.util import str_escape
 
 # --------------------------------------------------------------------
@@ -43,12 +40,12 @@ class Response:
 class Call:
     function: str
     params: ArgV
+    future: asyncio.Future[Response]
     expires_at: datetime = datetime.max
     id: int = field(default_factory=CALL_AUTO_INCREMENT.next)
-    response: AtomicResult[Response] = AtomicResult()
 
-    def to_argv(self) -> ArgV:
-        return ["call", str(self.id), *[str(p) for p in self.params]]
+    def to_command_argv(self) -> ArgV:
+        return ["call", str(self.id), self.function, *[str(p) for p in self.params]]
 
     def __str__(self):
         sb = StringIO()

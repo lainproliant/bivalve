@@ -28,7 +28,7 @@ setup(
     ],
     keywords="network sockets protocol shell",
     packages=find_packages(),
-    install_requires=['shortuuid>=1.0.11'],
+    install_requires=[],
     extras_require={},
     package_data={"bivalve": ["LICENSE"]},
     data_files=[],

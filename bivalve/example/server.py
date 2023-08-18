@@ -19,6 +19,7 @@ from bivalve.logging import LogManager
 tracemalloc.start()
 log = LogManager().get(__name__)
 
+
 # --------------------------------------------------------------------
 class ExampleServer(BivalveAgent):
     def __init__(self, host="", port=0):
@@ -45,6 +46,12 @@ class ExampleServer(BivalveAgent):
     async def cmd_quit(self, conn: Connection):
         await self.disconnect(conn)
 
+    def fn_add(self, conn: Connection, *argv):
+        total = 0
+        for arg in argv:
+            total += int(arg)
+        return total
+
 
 # --------------------------------------------------------------------
 def main():
@@ -55,6 +62,7 @@ def main():
     server = ExampleServer("localhost", 9595)
     loop.run_until_complete(server.run())
 
+
 # --------------------------------------------------------------------
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
