@@ -14,11 +14,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Awaitable, Optional
 
-from bivalve.aio import Server, Stream, Connection, StreamConnection
-from bivalve.logging import LogManager
-from bivalve.util import Commands, get_millis, is_iterable
+from bivalve.aio import Connection, Server, Stream, StreamConnection
 from bivalve.call import Call, Response
 from bivalve.datatypes import ArgV
+from bivalve.logging import LogManager
+from bivalve.util import Commands, async_wrap, get_millis, is_iterable
 
 log = LogManager().get(__name__)
 
@@ -42,10 +42,12 @@ class BivalveAgent:
         syn_timeout=timedelta(seconds=5),
         syn_jitter=5,
         loop_duration_ms=150,
+        loop: Optional[asyncio.AbstractEventLoop] = None,
     ):
         self._commands = Commands(self)
         self._conn_ctx_map: dict[int, ConnectionContext] = {}
         self._functions = Commands(self, prefix="fn_")
+        self._loop = loop
         self._max_peers = max_peers
         self._servers: list[Server] = []
         self._shutdown_event = asyncio.Event()
@@ -58,6 +60,12 @@ class BivalveAgent:
     @property
     def running(self) -> bool:
         return bool(self._conn_ctx_map or self._servers)
+
+    @property
+    def loop(self) -> asyncio.AbstractEventLoop:
+        if self._loop is None:
+            self._loop = asyncio.get_event_loop()
+        return self._loop
 
     async def serve(self, **kwargs) -> Server:
         self._check_max_peers()
@@ -111,16 +119,13 @@ class BivalveAgent:
         self._conn_ctx_map[conn.id] = ConnectionContext(
             conn, asyncio.create_task(self.communicate(conn))
         )
-
-        loop = asyncio.get_running_loop()
-        loop.call_soon(self.on_connect, conn)
+        self.schedule(async_wrap(self.on_connect, conn))
 
     def schedule(self, awaitable: Awaitable) -> asyncio.Task:
         """
         Schedule a task to be run in parallel.
         """
-        loop = asyncio.get_event_loop()
-        task = loop.create_task(awaitable)
+        task = self.loop.create_task(awaitable)
         self._scheduled_tasks.add(task)
         task.add_done_callback(self._scheduled_tasks.discard)
         return task
@@ -131,7 +136,7 @@ class BivalveAgent:
     def on_disconnect(self, conn: Connection):
         pass
 
-    def on_unrecognized_command(self, *argv):
+    def on_unrecognized_command(self, conn: Connection, *argv):
         pass
 
     def disconnect(self, conn: Connection, notify=True):
@@ -150,8 +155,7 @@ class BivalveAgent:
         if conn.id in self._conn_ctx_map:
             del self._conn_ctx_map[conn.id]
             log.info(f"Peer disconnected: {conn}")
-            loop = asyncio.get_running_loop()
-            loop.call_soon(self.on_disconnect, conn)
+            self.schedule(async_wrap(self.on_disconnect, conn))
 
     async def maintain(self):
         trash: list[Connection] = []
@@ -216,8 +220,7 @@ class BivalveAgent:
                     await self.process_command(conn, *argv)
                 except ValueError:
                     log.exception("Received an unrecognized peer command.")
-                    loop = asyncio.get_running_loop()
-                    loop.call_soon(self.on_unrecognized_command, conn, *argv)
+                    self.schedule(async_wrap(self.on_unrecognized_command, conn, *argv))
 
             except ConnectionError:
                 if await conn.alive():
@@ -225,6 +228,9 @@ class BivalveAgent:
                 await self._cleanup(conn, notify=False)
 
     async def run(self):
+        if self._loop is None:
+            self._loop = asyncio.get_event_loop()
+
         while self.running:
             now_ms = get_millis()
             await self.maintain()
@@ -259,7 +265,7 @@ class BivalveAgent:
             *(ctx.conn.send(*argv) for ctx in self._conn_ctx_map.values())
         )
 
-    async def call(
+    def call(
         self,
         conn_id: int,
         function: str,
@@ -270,7 +276,7 @@ class BivalveAgent:
         if ctx is None:
             raise ValueError("Not a connected peer: id={conn.id}.")
 
-        call = Call(function, argv)
+        call = Call(function, params)
         call.expires_at = datetime.now() + timedelta(milliseconds=timeout_ms)
         ctx.call_map[call.id] = call
         self.schedule(ctx.conn.send(*call.to_call_cmd_argv()))
@@ -306,10 +312,7 @@ class BivalveAgent:
             return
 
         try:
-            if inspect.iscoroutinefunction(function):
-                result = await function(conn, *argv)
-            else:
-                result = function(conn, *argv)
+            result = await async_wrap(function, conn, *argv)
 
         except Exception as e:
             log.exception("Error processing peer call to function `{fn_name}`.")

@@ -53,7 +53,7 @@ class ExampleClient(BivalveAgent):
         self.schedule(self.call_add(conn.id))
 
     async def call_add(self, conn_id):
-        result = await self.call(conn_id, "add", 1, 2, 3).future
+        result = await self.call(conn_id, "add", ["1", "2", "3"]).future
         print("The result was:", result)
 
     def on_disconnect(self, _):

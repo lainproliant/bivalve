@@ -31,7 +31,7 @@ class ExampleServer(BivalveAgent):
 
     def ctrlc_handler(self, *_):
         log.critical("Ctrl+C received.")
-        self._shutdown_event.set()
+        self.shutdown()
 
     async def run(self):
         signal.signal(signal.SIGINT, self.ctrlc_handler)

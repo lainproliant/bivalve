@@ -55,6 +55,20 @@ class Commands:
 
 
 # --------------------------------------------------------------------
+async def async_wrap(f, *args, **kwargs):
+    """
+    From xeno.utils
+
+    Wraps a normal function in a coroutine.  If the given function
+    is already a coroutine function, we simply await it.
+    """
+
+    if not asyncio.iscoroutinefunction(f):
+        return f(*args, **kwargs)
+    return await f(*args, **kwargs)
+
+
+# --------------------------------------------------------------------
 def is_iterable(obj: Any) -> bool:
     """Determine if the given object is an iterable sequence other than a string or byte array."""
     return (
