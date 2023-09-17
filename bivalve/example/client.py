@@ -53,7 +53,7 @@ class ExampleClient(BivalveAgent):
         self.schedule(self.call_add(conn.id))
 
     async def call_add(self, conn_id):
-        result = await self.call(conn_id, "add", ["1", "2", "3"]).future
+        result = await self.call("add", 1, 2, 3)
         print("The result was:", result)
 
     def on_disconnect(self, _):
@@ -68,7 +68,7 @@ class ExampleClient(BivalveAgent):
                 s = ninput.read("> ", timeout=1)
                 if s is not None:
                     argv = shlex.split(s)
-                    asyncio.run_coroutine_threadsafe(self.send("echo", *argv), loop)
+                    asyncio.run_coroutine_threadsafe(self.send_to(self.peers(), "echo", *argv), loop)
 
 
 # --------------------------------------------------------------------

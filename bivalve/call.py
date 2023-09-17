@@ -14,8 +14,6 @@ from io import StringIO
 from bivalve.datatypes import ArgV, ThreadAtomicCounter
 from bivalve.util import new_future, str_escape
 
-from typing import Optional
-
 # --------------------------------------------------------------------
 CALL_AUTO_INCREMENT = ThreadAtomicCounter()
 
@@ -62,6 +60,9 @@ class Call:
         sb.write(str(self))
         sb.write(f" id={self.id}")
         sb.write(">")
+
+    def __await__(self):
+        return self.future.__await__()
 
 
 # --------------------------------------------------------------------

@@ -8,11 +8,11 @@
 # --------------------------------------------------------------------
 
 import asyncio
-import inspect
 import random
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Awaitable, Optional
+from enum import StrEnum, auto
+from typing import Any, Awaitable, Iterable, Optional, Union
 
 from bivalve.aio import Connection, Server, Stream, StreamConnection
 from bivalve.call import Call, Response
@@ -24,9 +24,18 @@ log = LogManager().get(__name__)
 
 
 # --------------------------------------------------------------------
+class Role(StrEnum):
+    NONE = auto()
+    PEER = auto()
+    DOWNSTREAM = auto()
+    UPSTREAM = auto()
+
+
+# --------------------------------------------------------------------
 @dataclass
 class ConnectionContext:
     conn: Connection
+    role: Role
     task: asyncio.Task
     ack_ttl: Optional[datetime] = None
     syn_at: datetime = datetime.min
@@ -43,6 +52,8 @@ class BivalveAgent:
         syn_jitter=5,
         loop_duration_ms=150,
         loop: Optional[asyncio.AbstractEventLoop] = None,
+        incoming_role: Role = Role.DOWNSTREAM,
+        outgoing_role: Role = Role.UPSTREAM,
     ):
         self._commands = Commands(self)
         self._conn_ctx_map: dict[int, ConnectionContext] = {}
@@ -56,6 +67,8 @@ class BivalveAgent:
         self._syn_schedule = syn_schedule
         self._syn_timeout = syn_timeout
         self._scheduled_tasks = set()
+        self._incoming_role = incoming_role
+        self._outgoing_role = outgoing_role
 
     @property
     def running(self) -> bool:
@@ -67,6 +80,23 @@ class BivalveAgent:
             self._loop = asyncio.get_event_loop()
         return self._loop
 
+    def connection_contexts(self):
+        yield from self._conn_ctx_map.values()
+
+    def peers(self) -> Iterable[Connection]:
+        for ctx in self.connection_contexts():
+            yield ctx.conn
+
+    def upstream_peers(self) -> Iterable[Connection]:
+        for ctx in self.connection_contexts():
+            if ctx.role in (Role.PEER, Role.UPSTREAM):
+                yield ctx.conn
+
+    def downstream_peers(self) -> Iterable[Connection]:
+        for ctx in self.conneciton_contexts():
+            if ctx.role in (Role.PEER, Role.DOWNSTREAM):
+                yield ctx.conn
+
     async def serve(self, **kwargs) -> Server:
         self._check_max_peers()
 
@@ -75,13 +105,16 @@ class BivalveAgent:
         self._servers.append(server)
         return server
 
-    async def connect(self, **kwargs) -> Connection:
+    async def connect(self, role=Role.NONE, **kwargs) -> Connection:
         self._check_max_peers()
+
+        if role == Role.NONE:
+            role = self._outgoing_role
 
         stream = await Stream.connect(**kwargs)
         conn = StreamConnection(stream)
-        self.add_connection(conn)
-        log.info(f"Connected to peer on {conn}.")
+        self.add_connection(conn, role)
+
         return conn
 
     def _check_max_peers(self):
@@ -91,16 +124,19 @@ class BivalveAgent:
             )
             raise RuntimeError("Maximum number of peer connections reached.")
 
-    def bridge(self) -> Connection:
+    def bridge(self, role=Role.NONE) -> Connection:
         self._check_max_peers()
 
         send_queue: asyncio.Queue[str] = asyncio.Queue()
         recv_queue: asyncio.Queue[str] = asyncio.Queue()
 
+        if role == Role.NONE:
+            role = self._incoming_role
+
         our_conn = Connection.bridge(send_queue, recv_queue)
         their_conn = Connection.bridge(recv_queue, send_queue)
         log.info(f"Bridge connected on {our_conn}.")
-        self.add_connection(our_conn)
+        self.add_connection(our_conn, role)
         return their_conn
 
     async def on_incoming_stream(self, stream: Stream):
@@ -113,13 +149,13 @@ class BivalveAgent:
 
         conn = StreamConnection(stream)
         log.info(f"Incoming peer connected: {stream}")
-        self.add_connection(conn)
+        self.add_connection(conn, self._incoming_role)
 
-    def add_connection(self, conn: Connection):
+    def add_connection(self, conn: Connection, role=Role.UPSTREAM):
         self._conn_ctx_map[conn.id] = ConnectionContext(
-            conn, asyncio.create_task(self.communicate(conn))
+            conn, role, asyncio.create_task(self.communicate(conn))
         )
-        self.schedule(async_wrap(self.on_connect, conn))
+        self.schedule(self._on_connect(conn))
 
     def schedule(self, awaitable: Awaitable) -> asyncio.Task:
         """
@@ -130,13 +166,49 @@ class BivalveAgent:
         task.add_done_callback(self._scheduled_tasks.discard)
         return task
 
+    async def _on_connect(self, conn: Connection):
+        try:
+            await async_wrap(self.on_connect, conn)
+        except Exception:
+            log.exception("Error occurred during `on_connect()` handler.")
+
     def on_connect(self, conn: Connection):
         pass
+
+    async def _on_disconnect(self, conn: Connection):
+        try:
+            await async_wrap(self.on_disconnect, conn)
+        except Exception:
+            log.exception("Error occurred during `on_disconnect()` handler.")
 
     def on_disconnect(self, conn: Connection):
         pass
 
+    async def _on_unrecognized_command(self, conn: Connection, *argv):
+        try:
+            await async_wrap(self.on_unrecognized_command, conn, *argv)
+        except Exception:
+            log.exception("Error occurred during `on_unrecognized_command()` handler.")
+
     def on_unrecognized_command(self, conn: Connection, *argv):
+        pass
+
+    async def _on_startup(self):
+        try:
+            await async_wrap(self.on_startup)
+        except Exception:
+            log.exception("Error occurred during `on_startup()` handler.")
+
+    def on_startup(self):
+        pass
+
+    async def _on_shutdown(self):
+        try:
+            await async_wrap(self.on_shutdown)
+        except Exception:
+            log.exception("Error occurred during `on_shutdown()` handler.")
+
+    def on_shutdown(self):
         pass
 
     def disconnect(self, conn: Connection, notify=True):
@@ -155,7 +227,7 @@ class BivalveAgent:
         if conn.id in self._conn_ctx_map:
             del self._conn_ctx_map[conn.id]
             log.info(f"Peer disconnected: {conn}")
-            self.schedule(async_wrap(self.on_disconnect, conn))
+            self.schedule(self._on_disconnect(conn))
 
     async def maintain(self):
         trash: list[Connection] = []
@@ -220,7 +292,7 @@ class BivalveAgent:
                     await self.process_command(conn, *argv)
                 except ValueError:
                     log.exception("Received an unrecognized peer command.")
-                    self.schedule(async_wrap(self.on_unrecognized_command, conn, *argv))
+                    self.schedule(self._on_unrecognized_command(conn, *argv))
 
             except ConnectionError:
                 if await conn.alive():
@@ -230,6 +302,8 @@ class BivalveAgent:
     async def run(self):
         if self._loop is None:
             self._loop = asyncio.get_event_loop()
+
+        self.schedule(self._on_startup())
 
         while self.running:
             now_ms = get_millis()
@@ -245,6 +319,9 @@ class BivalveAgent:
             return
 
         log.info("Shutting down.")
+
+        await self._on_shutdown()
+
         try:
             for ctx in list(self._conn_ctx_map.values()):
                 await self._cleanup(ctx.conn)
@@ -260,23 +337,30 @@ class BivalveAgent:
             log.info("Shutdown complete.")
 
     async def send(self, *argv):
-        assert self._conn_ctx_map, "No connected peers."
-        await asyncio.gather(
-            *(ctx.conn.send(*argv) for ctx in self._conn_ctx_map.values())
-        )
+        await self.send_to(self.downstream_peers(), *argv)
+
+    async def send_to(self, peer: Union[Connection, Iterable[Connection]], *argv):
+        if is_iterable(peer):
+            await asyncio.gather(*(conn.send(*argv) for conn in peer))
+        else:
+            await peer.send(*argv)
 
     def call(
         self,
-        conn_id: int,
-        function: str,
-        params: ArgV,
+        *params: Any,
         timeout_ms: int = 10000,
     ) -> Call:
+        try:
+            conn_id = random.choice([*self.upstream_peers()]).id
+        except IndexError:
+            raise RuntimeError("No upstream peers to call.")
+
         ctx = self._conn_ctx_map.get(conn_id)
         if ctx is None:
             raise ValueError("Not a connected peer: id={conn.id}.")
 
-        call = Call(function, params)
+        fn, *argv = [str(x) for x in params]
+        call = Call(fn, argv)
         call.expires_at = datetime.now() + timedelta(milliseconds=timeout_ms)
         ctx.call_map[call.id] = call
         self.schedule(ctx.conn.send(*call.to_call_cmd_argv()))

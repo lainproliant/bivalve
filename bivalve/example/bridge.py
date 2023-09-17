@@ -26,7 +26,7 @@ async def main():
 
     server = ExampleServer()
     client = ExampleClient()
-    server.add_connection(client.bridge())
+    client.add_connection(server.bridge())
 
     await asyncio.gather(server.run(), client.run())
 
