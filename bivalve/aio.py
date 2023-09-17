@@ -200,7 +200,7 @@ class Connection:
         return StreamConnection(stream)
 
     @classmethod
-    async def bridge(
+    def bridge(
         cls, send_queue: ArgVQueue, recv_queue: ArgVQueue, poll_timeout=1.0
     ) -> "Connection":
         return BridgeConnection(send_queue, recv_queue, poll_timeout)
