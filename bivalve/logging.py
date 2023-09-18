@@ -39,11 +39,14 @@ class LogManager(Borg):
 
     def _create(self, name) -> logging.Logger:
         log = logging.Logger(name)
-        for handler in itertools.chain(self._handlers, self._special_handlers):
+        for handler in self.handlers():
             log.addHandler(handler)
         log.setLevel(self._level)
         self._logs[name] = log
         return log
+
+    def handlers(self):
+        return itertools.chain(self._handlers, self._special_handlers)
 
     def setup(self):
         """
