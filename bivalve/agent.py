@@ -382,8 +382,9 @@ class BivalveAgent:
         self.disconnect(conn, notify=False)
 
     async def cmd_call(self, conn: Connection, call_id: str, fn_name: str, *argv):
-        function = self._functions.get(fn_name)
-        if function is None:
+        try:
+            function = self._functions.get(fn_name)
+        except ValueError:
             log.debug(
                 f"Received call for an undefined function `{fn_name}` id={call_id}"
             )
