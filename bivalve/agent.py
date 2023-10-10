@@ -396,15 +396,17 @@ class BivalveAgent:
             function = self._functions.get(fn_name)
 
         except ValueError:
+
             async def wrapper(conn: Connection, *argv):
                 return await self._on_unrecognized_function(conn, fn_name, *argv)
+
             function = wrapper
 
         try:
             result = await async_wrap(function, conn, *argv)
 
         except NotImplementedError:
-            log.debug(
+            log.error(
                 f"Received call for an undefined function `{fn_name}` id={call_id}"
             )
             await conn.send(
@@ -426,12 +428,16 @@ class BivalveAgent:
             )
             return
 
-        if is_iterable(result):
-            await conn.send(
-                "return", call_id, Response.Code.OK, *[str(r) for r in result]
-            )
-        else:
-            await conn.send("return", call_id, Response.Code.OK, str(result))
+        try:
+            if is_iterable(result):
+                await conn.send(
+                    "return", call_id, Response.Code.OK, *[str(r) for r in result]
+                )
+            else:
+                await conn.send("return", call_id, Response.Code.OK, str(result))
+
+        except Exception:
+            log.exception("Failed to send result back to caller.")
 
     async def cmd_return(
         self, conn: Connection, call_id_str: str, response_code: str, *argv

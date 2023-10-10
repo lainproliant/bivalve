@@ -155,7 +155,7 @@ class ClientAgent(BivalveAgent):
                     except asyncio.InvalidStateError:
                         sys.stdout.write(".")
                         sys.stdout.flush()
-                        ninput.read("", timeout=0.25)
+                        time.sleep(0.25)
 
                     except Exception:
                         traceback.print_exc()
