@@ -54,7 +54,11 @@ class ExampleClient(BivalveAgent):
 
     async def call_add(self, conn_id):
         result = await self.call("add", 1, 2, 3)
-        print("The result was:", result)
+        print("The add result was:", result)
+        result = await self.call("multiply", 1, 2, 3)
+        print("The multiply result was:", result)
+        result = await self.call("divide", 1, 2, 3)
+        print("The divide result was:", result)
 
     def on_disconnect(self, _):
         self.shutdown()

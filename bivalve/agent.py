@@ -9,6 +9,7 @@
 
 import asyncio
 import random
+import functools
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import StrEnum, auto
@@ -16,7 +17,6 @@ from typing import Any, Awaitable, Iterable, Optional, Union
 
 from bivalve.aio import Connection, Server, Stream, StreamConnection
 from bivalve.call import Call, Response
-from bivalve.datatypes import ArgV
 from bivalve.logging import LogManager
 from bivalve.util import Commands, async_wrap, get_millis, is_iterable
 
@@ -190,8 +190,14 @@ class BivalveAgent:
         except Exception:
             log.exception("Error occurred during `on_unrecognized_command()` handler.")
 
+    async def _on_unrecognized_function(self, fn_name: str, conn: Connection, *argv):
+        return await async_wrap(self.on_unrecognized_function, fn_name, conn, *argv)
+
     def on_unrecognized_command(self, conn: Connection, *argv):
         pass
+
+    def on_unrecognized_function(self, fn_name: str, conn: Connection, *argv):
+        raise NotImplementedError()
 
     async def _on_startup(self):
         try:
@@ -385,7 +391,14 @@ class BivalveAgent:
     async def cmd_call(self, conn: Connection, call_id: str, fn_name: str, *argv):
         try:
             function = self._functions.get(fn_name)
+
         except ValueError:
+            function = functools.partial(self._on_unrecognized_function, fn_name)
+
+        try:
+            result = await async_wrap(function, conn, *argv)
+
+        except NotImplementedError:
             log.debug(
                 f"Received call for an undefined function `{fn_name}` id={call_id}"
             )
@@ -396,9 +409,6 @@ class BivalveAgent:
                 Response.Errors.UNDEFINED_FUNCTION,
             )
             return
-
-        try:
-            result = await async_wrap(function, conn, *argv)
 
         except Exception as e:
             log.exception("Error processing peer call to function `{fn_name}`.")
