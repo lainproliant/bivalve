@@ -293,7 +293,8 @@ class BivalveAgent:
                 except ValueError:
                     log.exception("Received an unrecognized peer command.")
                     self.schedule(self._on_unrecognized_command(conn, *argv))
-
+            except ConnectionAbortedError:
+                await self._cleanup(conn, notify=False)
             except ConnectionError:
                 if await conn.alive():
                     log.exception(f"Connection lost with peer {conn.id}.")
