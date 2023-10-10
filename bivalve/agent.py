@@ -368,7 +368,10 @@ class BivalveAgent:
 
         fn, *argv = [str(x) for x in params]
         call = Call(fn, argv)
-        call.expires_at = datetime.now() + timedelta(milliseconds=timeout_ms)
+        if timeout_ms == 0:
+            call.expires_at = datetime.max
+        else:
+            call.expires_at = datetime.now() + timedelta(milliseconds=timeout_ms)
         ctx.call_map[call.id] = call
         self.schedule(ctx.conn.send(*call.to_call_cmd_argv()))
         return call
