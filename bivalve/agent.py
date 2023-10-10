@@ -282,7 +282,7 @@ class BivalveAgent:
             command = self._commands.get(argv[0])
             if command is None:
                 raise ValueError(f"Peer command is not recognized: {argv[0]}.")
-            await command(conn, *argv[1:])
+            self.schedule(command(conn, *argv[1:]))
 
         except ConnectionError:
             raise

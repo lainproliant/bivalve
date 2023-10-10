@@ -11,6 +11,7 @@ import getpass
 import shlex
 import signal
 import ssl
+import sys
 import threading
 import time
 import traceback
@@ -140,15 +141,21 @@ class ClientAgent(BivalveAgent):
                         result = current_call.future.result()
 
                         if result.code == result.Code.OK:
+                            print()
                             print(f"<< OK {' '.join(result.content)}")
+                            print()
 
                         elif result.code == result.Code.ERROR:
+                            print()
                             print(f"<< ERROR {' '.join(result.content)}")
+                            print()
 
                         current_call = None
 
                     except asyncio.InvalidStateError:
-                        time.sleep(0.25)
+                        sys.stdout.write(".")
+                        sys.stdout.flush()
+                        ninput.read("", timeout=0.25)
 
                     except Exception:
                         traceback.print_exc()
