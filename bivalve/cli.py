@@ -171,7 +171,7 @@ class ClientAgent(BivalveAgent):
                             argv.append(arg)
 
                     if argv[0] == "call":
-                        current_call = self.call(*argv[1:], timeout=0)
+                        current_call = self.call(*argv[1:], timeout_ms=0)
 
                     else:
                         asyncio.run_coroutine_threadsafe(
