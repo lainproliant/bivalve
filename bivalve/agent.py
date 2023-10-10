@@ -190,13 +190,13 @@ class BivalveAgent:
         except Exception:
             log.exception("Error occurred during `on_unrecognized_command()` handler.")
 
-    async def _on_unrecognized_function(self, fn_name: str, conn: Connection, *argv):
-        return await async_wrap(self.on_unrecognized_function, fn_name, conn, *argv)
+    async def _on_unrecognized_function(self, conn: Connection, fn_name: str, *argv):
+        return await async_wrap(self.on_unrecognized_function, conn, fn_name, *argv)
 
     def on_unrecognized_command(self, conn: Connection, *argv):
         pass
 
-    def on_unrecognized_function(self, fn_name: str, conn: Connection, *argv):
+    def on_unrecognized_function(self, conn: Connection, fn_name: str, *argv):
         raise NotImplementedError()
 
     async def _on_startup(self):
@@ -393,7 +393,9 @@ class BivalveAgent:
             function = self._functions.get(fn_name)
 
         except ValueError:
-            function = functools.partial(self._on_unrecognized_function, fn_name)
+            async def wrapper(conn: Connection, *argv):
+                return await self._on_unrecognized_function(conn, fn_name, *argv)
+            function = wrapper
 
         try:
             result = await async_wrap(function, conn, *argv)
