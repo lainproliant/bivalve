@@ -418,7 +418,7 @@ class BivalveAgent:
             return
 
         except Exception as e:
-            log.exception("Error processing peer call to function `{fn_name}`.")
+            log.exception(f"Error processing peer call to function `{fn_name}`.")
             await conn.send(
                 "return",
                 call_id,
