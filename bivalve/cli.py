@@ -143,12 +143,10 @@ class ClientAgent(BivalveAgent):
                         if result.code == result.Code.OK:
                             print()
                             print(f"<< OK {' '.join(result.content)}")
-                            print()
 
                         elif result.code == result.Code.ERROR:
                             print()
                             print(f"<< ERROR {' '.join(result.content)}")
-                            print()
 
                         current_call = None
 
