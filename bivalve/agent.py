@@ -9,7 +9,6 @@
 
 import asyncio
 import random
-import functools
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import StrEnum, auto
@@ -430,11 +429,9 @@ class BivalveAgent:
 
         try:
             if is_iterable(result):
-                await conn.send(
-                    "return", call_id, Response.Code.OK, *[str(r) for r in result]
-                )
+                await conn.send("return", call_id, Response.Code.OK, *result)
             else:
-                await conn.send("return", call_id, Response.Code.OK, str(result))
+                await conn.send("return", call_id, Response.Code.OK, result)
 
         except Exception:
             log.exception("Failed to send result back to caller.")

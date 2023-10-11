@@ -8,8 +8,8 @@
 # --------------------------------------------------------------------
 
 import asyncio
+import base64
 import inspect
-import shlex
 from dataclasses import dataclass, field
 from datetime import datetime
 from io import StringIO
@@ -17,12 +17,7 @@ from pathlib import Path
 from ssl import SSLContext
 from typing import Optional
 
-from bivalve.datatypes import (
-    ArgV,
-    ArgVQueue,
-    AtomicValue,
-    ThreadAtomicCounter,
-)
+from bivalve.datatypes import ArgV, ArgVQueue, AtomicValue, ThreadAtomicCounter
 from bivalve.logging import LogManager
 
 # --------------------------------------------------------------------
@@ -30,6 +25,7 @@ log = LogManager().get(__name__)
 
 SERVER_AUTO_ID = ThreadAtomicCounter()
 STREAM_AUTO_ID = ThreadAtomicCounter()
+
 
 # --------------------------------------------------------------------
 @dataclass
@@ -236,6 +232,18 @@ class Connection:
         except Exception as e:
             log.warning(f"Could not send `{argv[0]}`, unexpected error occurred.", e)
 
+    def _encode_word(self, s: str) -> str:
+        return base64.a85encode(s.encode("utf-8")).decode("utf-8")
+
+    def _decode_word(self, word: str) -> str:
+        return base64.a85decode(word.encode("utf-8")).decode("utf-8")
+
+    def _join(self, argv: list[str]) -> str:
+        return ' '.join([self._encode_word(str(s)) for s in argv])
+
+    def _split(self, argv: str) -> ArgV:
+        return [self._decode_word(s) for s in argv.split(' ')]
+
     async def _send(self, *argv):
         raise NotImplementedError()
 
@@ -273,10 +281,10 @@ class StreamConnection(Connection):
         out = await self.stream.reader.readline()
         if not out or not await self.alive():
             raise ConnectionAbortedError()
-        return shlex.split(out.decode())
+        return self._split(out.decode())
 
     async def _send(self, *argv):
-        self.stream.writer.write((shlex.join([str(s) for s in argv]) + "\n").encode())
+        self.stream.writer.write((self._join([str(s) for s in argv]) + "\n").encode())
         await self.stream.writer.drain()
 
     def __repr__(self):
