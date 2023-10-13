@@ -1,4 +1,6 @@
 # Bivalve - Bi-Directional Shell Sockets
+![Bivalve Logo](bivalve-logo.png)
+
 This is a library implementing bi-directional shell sockets, a method of
 IPC where applications send and receive shell-formatted commands over
 simple TCP sockets.
