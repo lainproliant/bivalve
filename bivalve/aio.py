@@ -8,7 +8,6 @@
 # --------------------------------------------------------------------
 
 import asyncio
-import base64
 import inspect
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -17,7 +16,13 @@ from pathlib import Path
 from ssl import SSLContext
 from typing import Optional
 
-from bivalve.datatypes import ArgV, ArgVQueue, AtomicValue, ThreadAtomicCounter
+from bivalve.datatypes import (
+    ArgV,
+    ArgVQueue,
+    AtomicValue,
+    PackedString,
+    ThreadAtomicCounter,
+)
 from bivalve.logging import LogManager
 
 # --------------------------------------------------------------------
@@ -232,18 +237,6 @@ class Connection:
         except Exception as e:
             log.warning(f"Could not send `{argv[0]}`, unexpected error occurred.", e)
 
-    def _encode_word(self, s: str) -> str:
-        return base64.a85encode(s.encode("utf-8")).decode("utf-8")
-
-    def _decode_word(self, word: str) -> str:
-        return base64.a85decode(word.encode("utf-8")).decode("utf-8")
-
-    def _join(self, argv: list[str]) -> str:
-        return ' '.join([self._encode_word(str(s)) for s in argv])
-
-    def _split(self, argv: str) -> ArgV:
-        return [self._decode_word(s) for s in argv.split(' ')]
-
     async def _send(self, *argv):
         raise NotImplementedError()
 
@@ -277,14 +270,30 @@ class StreamConnection(Connection):
             await self.stream.close()
             await self.alive.set(False)
 
-    async def _recv(self) -> ArgV:
-        out = await self.stream.reader.readline()
-        if not out or not await self.alive():
+    async def _recv_arg(self) -> Optional[str]:
+        try:
+            size_bytes = await self.stream.reader.readexactly(4)
+            size = int.from_bytes(size_bytes)
+            if size == 0:
+                return None
+            arg_bytes = await self.stream.reader.readexactly(size)
+            arg = arg_bytes.decode("utf-8")
+            return arg
+
+        except asyncio.IncompleteReadError:
             raise ConnectionAbortedError()
-        return self._split(out.decode())
+
+    async def _recv(self) -> ArgV:
+        results: ArgV = []
+
+        while (arg := await self._recv_arg()) is not None:
+            results.append(arg)
+
+        return results
 
     async def _send(self, *argv):
-        self.stream.writer.write((self._join([str(s) for s in argv]) + "\n").encode())
+        for arg in argv:
+            self.stream.writer.write(PackedString(arg).to_bytes())
         await self.stream.writer.drain()
 
     def __repr__(self):
