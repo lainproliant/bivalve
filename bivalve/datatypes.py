@@ -7,6 +7,7 @@
 
 import asyncio
 import threading
+from dataclasses import dataclass
 from typing import Callable, Generic, Optional, TypeVar
 
 # --------------------------------------------------------------------
@@ -81,3 +82,13 @@ class ThreadAtomicCounter:
         with self.lock:
             self.value += 1
             return self.value
+
+
+# --------------------------------------------------------------------
+class PackedString:
+    def __init__(self, value: str, encoding="utf8"):
+        self.bytes = value.encode(encoding)
+        self.size = len(self.bytes)
+
+    def to_bytes(self) -> bytes:
+        return self.size.to_bytes(4) + self.bytes
