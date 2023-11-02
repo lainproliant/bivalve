@@ -11,7 +11,7 @@ with open(path.join(here, "README.md"), encoding="utf-8") as f:
 
 setup(
     name="bivalve",
-    version="1.00",
+    version="1.01",
     description="A bi-directional shell-like socket protocol framework using asyncio.",
     long_description=long_description,
     long_description_content_type="text/markdown",

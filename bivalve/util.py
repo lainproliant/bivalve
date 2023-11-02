@@ -46,6 +46,9 @@ class Commands:
             raise ValueError(f"Command `{name}` is not defined.")
         return self.map[name]
 
+    def has(self, name) -> bool:
+        return name in self.map
+
     def list(self):
         return sorted(self.map.keys())
 
