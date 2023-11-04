@@ -294,6 +294,7 @@ class StreamConnection(Connection):
     async def _send(self, *argv):
         for arg in argv:
             self.stream.writer.write(PackedString(arg).to_bytes())
+        self.stream.writer.write((0).to_bytes(4))
         await self.stream.writer.drain()
 
     def __repr__(self):
