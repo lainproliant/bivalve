@@ -12,14 +12,17 @@ import random
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import StrEnum, auto
-from typing import Any, Awaitable, Iterable, Optional, Union
+from typing import Any, Coroutine, Iterable, Optional, Union
+
+import waterlog
+from commandmap import CommandMap
 
 from bivalve.aio import Connection, Server, Stream, StreamConnection
 from bivalve.call import Call, Response
-from bivalve.logging import LogManager
-from bivalve.util import Commands, async_wrap, get_millis, is_iterable
+from bivalve.datatypes import ArgV
+from bivalve.util import async_wrap, get_millis, is_iterable
 
-log = LogManager().get(__name__)
+log = waterlog.get(__name__)
 
 
 # --------------------------------------------------------------------
@@ -54,9 +57,9 @@ class BivalveAgent:
         incoming_role: Role = Role.DOWNSTREAM,
         outgoing_role: Role = Role.UPSTREAM,
     ):
-        self._commands = Commands(self)
+        self._commands = CommandMap(self)
         self._conn_ctx_map: dict[int, ConnectionContext] = {}
-        self._functions = Commands(self, prefix="fn_")
+        self._functions = CommandMap(self, prefix="fn_")
         self._loop = loop
         self._max_peers = max_peers
         self._servers: list[Server] = []
@@ -65,7 +68,7 @@ class BivalveAgent:
         self._syn_jitter = syn_jitter
         self._syn_schedule = syn_schedule
         self._syn_timeout = syn_timeout
-        self._scheduled_tasks = set()
+        self._scheduled_tasks: set[asyncio.Task] = set()
         self._incoming_role = incoming_role
         self._outgoing_role = outgoing_role
 
@@ -92,7 +95,7 @@ class BivalveAgent:
                 yield ctx.conn
 
     def downstream_peers(self) -> Iterable[Connection]:
-        for ctx in self.conneciton_contexts():
+        for ctx in self.connection_contexts():
             if ctx.role in (Role.PEER, Role.DOWNSTREAM):
                 yield ctx.conn
 
@@ -126,8 +129,8 @@ class BivalveAgent:
     def bridge(self, role=Role.NONE) -> Connection:
         self._check_max_peers()
 
-        send_queue: asyncio.Queue[str] = asyncio.Queue()
-        recv_queue: asyncio.Queue[str] = asyncio.Queue()
+        send_queue: asyncio.Queue[ArgV] = asyncio.Queue()
+        recv_queue: asyncio.Queue[ArgV] = asyncio.Queue()
 
         if role == Role.NONE:
             role = self._incoming_role
@@ -156,11 +159,11 @@ class BivalveAgent:
         )
         self.schedule(self._on_connect(conn))
 
-    def schedule(self, awaitable: Awaitable) -> asyncio.Task:
+    def schedule(self, awaitable: Coroutine) -> asyncio.Task:
         """
         Schedule a task to be run in parallel.
         """
-        task = self.loop.create_task(awaitable)
+        task: asyncio.Task = self.loop.create_task(awaitable)
         self._scheduled_tasks.add(task)
         task.add_done_callback(self._scheduled_tasks.discard)
         return task
@@ -278,9 +281,9 @@ class BivalveAgent:
         try:
             if len(argv) < 1:
                 raise ValueError("No peer command was specified.")
-            command = self._commands.get(argv[0])
-            if command is None:
+            if argv[0] not in self._commands:
                 raise ValueError(f"Peer command is not recognized: {argv[0]}.")
+            command = self._commands[argv[0]]
             self.schedule(command(conn, *argv[1:]))
 
         except ConnectionError:
@@ -347,8 +350,10 @@ class BivalveAgent:
 
     async def send_to(self, peer: Union[Connection, Iterable[Connection]], *argv):
         if is_iterable(peer):
+            assert isinstance(peer, Iterable)
             await asyncio.gather(*(conn.send(*argv) for conn in peer))
         else:
+            assert isinstance(peer, Connection)
             await peer.send(*argv)
 
     def call(
@@ -391,10 +396,10 @@ class BivalveAgent:
         self.disconnect(conn, notify=False)
 
     async def cmd_call(self, conn: Connection, call_id: str, fn_name: str, *argv):
-        try:
-            function = self._functions.get(fn_name)
+        if fn_name in self._functions:
+            function = self._functions[fn_name]
 
-        except ValueError:
+        else:
 
             async def wrapper(conn: Connection, *argv):
                 return await self._on_unrecognized_function(conn, fn_name, *argv)

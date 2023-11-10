@@ -11,7 +11,7 @@ import asyncio
 import logging
 import sys
 
-from bivalve.logging import LogManager
+import waterlog
 
 from .client import ExampleClient
 from .server import ExampleServer
@@ -19,10 +19,10 @@ from .server import ExampleServer
 
 # --------------------------------------------------------------------
 async def main():
-    LogManager().setup()
+    waterlog.setup()
 
     if "--debug" in sys.argv:
-        LogManager().set_level(logging.DEBUG)
+        waterlog.set_level(logging.DEBUG)
 
     server = ExampleServer()
     client = ExampleClient()

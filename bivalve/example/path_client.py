@@ -14,12 +14,12 @@ import signal
 import sys
 import threading
 
+import waterlog
 from bivalve.agent import BivalveAgent
-from bivalve.logging import LogManager
 from bivalve.nio import NonBlockingTextInput
 
 # --------------------------------------------------------------------
-log = LogManager().get(__name__)
+log = waterlog.get(__name__)
 
 
 # --------------------------------------------------------------------
@@ -63,12 +63,12 @@ class ExamplePathClient(BivalveAgent):
 
 # --------------------------------------------------------------------
 def main():
-    LogManager().setup()
+    waterlog.setup()
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
     if "--debug" in sys.argv:
-        LogManager().set_level(logging.DEBUG)
+        waterlog.set_level(logging.DEBUG)
 
     client = ExamplePathClient("./unix.sock")
     loop.run_until_complete(client.run())

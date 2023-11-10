@@ -8,7 +8,7 @@
 import asyncio
 import threading
 from dataclasses import dataclass
-from typing import Callable, Generic, Optional, TypeVar, Any
+from typing import Any, Callable, Generic, Optional, TypeVar
 
 # --------------------------------------------------------------------
 T = TypeVar("T")

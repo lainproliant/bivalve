@@ -13,13 +13,13 @@ import signal
 import sys
 import tracemalloc
 
+import waterlog
 from bivalve.agent import BivalveAgent
 from bivalve.aio import Connection
-from bivalve.logging import LogManager
 
 # --------------------------------------------------------------------
 tracemalloc.start()
-log = LogManager().get(__name__)
+log = waterlog.get(__name__)
 
 
 # --------------------------------------------------------------------
@@ -61,15 +61,14 @@ class ExampleServer(BivalveAgent):
             raise NotImplementedError()
 
 
-
 # --------------------------------------------------------------------
 def main():
-    LogManager().setup()
+    waterlog.setup()
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
     if "--debug" in sys.argv:
-        LogManager().set_level(logging.DEBUG)
+        waterlog.set_level(logging.DEBUG)
 
     server = ExampleServer("localhost", 9595)
     loop.run_until_complete(server.run())

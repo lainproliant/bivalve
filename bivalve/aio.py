@@ -16,6 +16,8 @@ from pathlib import Path
 from ssl import SSLContext
 from typing import Optional
 
+import waterlog
+
 from bivalve.datatypes import (
     ArgV,
     ArgVQueue,
@@ -23,10 +25,9 @@ from bivalve.datatypes import (
     PackedString,
     ThreadAtomicCounter,
 )
-from bivalve.logging import LogManager
 
 # --------------------------------------------------------------------
-log = LogManager().get(__name__)
+log = waterlog.get(__name__)
 
 SERVER_AUTO_ID = ThreadAtomicCounter()
 STREAM_AUTO_ID = ThreadAtomicCounter()
@@ -197,7 +198,7 @@ class Connection:
 
     @classmethod
     async def connect(cls, **kwargs) -> "Connection":
-        stream = Stream.connect(**kwargs)
+        stream = await Stream.connect(**kwargs)
         return StreamConnection(stream)
 
     @classmethod
@@ -210,10 +211,10 @@ class Connection:
         if await self.alive():
             await self.alive.set(False)
 
-    async def send(self, *argv):
-        assert argv
-        assert len(argv) > 0
-        argv = [*argv]
+    async def send(self, *argv_in):
+        assert argv_in
+        assert len(argv_in) > 0
+        argv = [*argv_in]
         await self._send(*argv)
 
         log.debug(f"Sent {argv} to {self}")
@@ -334,4 +335,4 @@ class BridgeConnection(Connection):
         raise ConnectionAbortedError()
 
     async def _send(self, *argv):
-        await self.send_queue.put(argv)
+        await self.send_queue.put([*argv])

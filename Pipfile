@@ -1,0 +1,19 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+waterlog = "*"
+commandmap = "*"
+
+[dev-packages]
+vistir = "< 0.7.0"
+pipenv-setup = "*"
+neovim = "*"
+shortuuid = "*"
+black = "*"
+isort = "*"
+
+[requires]
+python_version = "3.11"

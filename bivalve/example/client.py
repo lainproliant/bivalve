@@ -14,13 +14,13 @@ import signal
 import sys
 import threading
 
+import waterlog
 from bivalve.agent import BivalveAgent
 from bivalve.aio import Connection
-from bivalve.logging import LogManager
 from bivalve.nio import NonBlockingTextInput
 
 # --------------------------------------------------------------------
-log = LogManager().get(__name__)
+log = waterlog.get(__name__)
 
 
 # --------------------------------------------------------------------
@@ -72,15 +72,17 @@ class ExampleClient(BivalveAgent):
                 s = ninput.read("> ", timeout=1)
                 if s is not None:
                     argv = shlex.split(s)
-                    asyncio.run_coroutine_threadsafe(self.send_to(self.peers(), "echo", *argv), loop)
+                    asyncio.run_coroutine_threadsafe(
+                        self.send_to(self.peers(), "echo", *argv), loop
+                    )
 
 
 # --------------------------------------------------------------------
 def main():
-    LogManager().setup()
+    waterlog.setup()
 
     if "--debug" in sys.argv:
-        LogManager().set_level(logging.DEBUG)
+        waterlog.set_level(logging.DEBUG)
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

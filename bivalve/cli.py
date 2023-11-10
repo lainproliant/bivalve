@@ -6,6 +6,7 @@
 # Date: Monday October 9, 2023
 # --------------------------------------------------------------------
 
+import argparse
 import asyncio
 import getpass
 import os
@@ -16,17 +17,17 @@ import sys
 import threading
 import time
 import traceback
-import argparse
 from dataclasses import dataclass
 from typing import Optional
 
+import waterlog
+
 from bivalve.agent import BivalveAgent
 from bivalve.call import Call
-from bivalve.logging import LogManager
 from bivalve.nio import NonBlockingTextInput
 
 # --------------------------------------------------------------------
-log = LogManager().get(__name__)
+log = waterlog.get(__name__)
 
 
 # --------------------------------------------------------------------
@@ -87,9 +88,7 @@ class Config:
             help="Execute semicolon-delimited commands from the given file, then exit.",
         )
         parser.add_argument(
-            "args",
-            nargs=argparse.REMAINDER,
-            help="A command to execute."
+            "args", nargs=argparse.REMAINDER, help="A command to execute."
         )
 
         return parser
@@ -274,13 +273,13 @@ class ClientAgent(BivalveAgent):
 
 # --------------------------------------------------------------------
 def main():
-    LogManager().setup()
+    waterlog.setup()
     config = Config().parse_args()
 
     if config.debug:
-        LogManager().set_level("DEBUG")
+        waterlog.set_level("DEBUG")
     else:
-        LogManager().set_level("WARNING")
+        waterlog.set_level("WARNING")
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
