@@ -51,6 +51,7 @@ class ExampleClient(BivalveAgent):
 
     def on_connect(self, conn: Connection):
         self.schedule(self.call_add(conn.id))
+        self.schedule(self.send_to(self.peers(), "pineapples"))
 
     async def call_add(self, conn_id):
         result = await self.call("add", 1, 2, 3)

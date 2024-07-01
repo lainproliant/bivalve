@@ -49,7 +49,7 @@ class ExampleServer(BivalveAgent):
         await conn.send("echo", msg)
 
     async def cmd_quit(self, conn: Connection):
-        await self.disconnect(conn)
+        self.disconnect(conn)
 
     async def on_unrecognized_function(self, conn: Connection, fn_name: str, *argv):
         if fn_name == "multiply":

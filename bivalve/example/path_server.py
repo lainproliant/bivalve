@@ -43,7 +43,7 @@ class ExamplePathServer(BivalveAgent):
         await conn.send("echo", msg)
 
     async def cmd_quit(self, conn: Connection):
-        await self.disconnect(conn)
+        self.disconnect(conn)
 
 
 # --------------------------------------------------------------------

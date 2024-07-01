@@ -26,6 +26,11 @@ log = waterlog.get(__name__)
 
 
 # --------------------------------------------------------------------
+class CommandError(Exception):
+    pass
+
+
+# --------------------------------------------------------------------
 class Role(StrEnum):
     NONE = auto()
     PEER = auto()
@@ -280,13 +285,16 @@ class BivalveAgent:
     async def process_command(self, conn: Connection, *argv: str):
         try:
             if len(argv) < 1:
-                raise ValueError("No peer command was specified.")
+                raise CommandError("No peer command was specified.")
             if argv[0] not in self._commands:
-                raise ValueError(f"Peer command is not recognized: {argv[0]}.")
+                raise CommandError(f"Peer command is not recognized: {argv[0]}.")
             command = self._commands[argv[0]]
             self.schedule(command(conn, *argv[1:]))
 
         except ConnectionError:
+            raise
+
+        except CommandError:
             raise
 
         except Exception:
@@ -298,8 +306,10 @@ class BivalveAgent:
                 argv = await conn.recv()
                 try:
                     await self.process_command(conn, *argv)
-                except ValueError:
-                    log.exception("Received an unrecognized peer command.")
+                except CommandError:
+                    log.warning(
+                        f"Received an unrecognized peer command: {argv[0] if argv else '(null)'}"
+                    )
                     self.schedule(self._on_unrecognized_command(conn, *argv))
             except ConnectionAbortedError:
                 await self._cleanup(conn, notify=False)
@@ -410,7 +420,7 @@ class BivalveAgent:
             result = await async_wrap(function, conn, *argv)
 
         except NotImplementedError:
-            log.error(
+            log.warning(
                 f"Received call for an undefined function `{fn_name}` id={call_id}"
             )
             await conn.send(
