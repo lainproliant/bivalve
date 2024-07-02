@@ -221,9 +221,12 @@ class Connection:
 
     async def recv(self) -> ArgV:
         argv = await self._recv()
-        assert argv
-        log.debug(f"Received {argv} from {self}")
+        if argv:
+            log.debug(f"Received {argv} from {self}")
         return argv
+
+    async def drain(self):
+        await self._drain()
 
     async def try_send(self, *argv):
         assert argv
@@ -242,6 +245,9 @@ class Connection:
         raise NotImplementedError()
 
     async def _recv(self) -> ArgV:
+        raise NotImplementedError()
+
+    async def _drain(self) -> ArgV:
         raise NotImplementedError()
 
     async def __aenter__(self) -> "Connection":
@@ -296,6 +302,8 @@ class StreamConnection(Connection):
         for arg in argv:
             self.stream.writer.write(PackedString(arg).to_bytes())
         self.stream.writer.write((0).to_bytes(4))
+
+    async def _drain(self):
         await self.stream.writer.drain()
 
     def __repr__(self):
@@ -336,3 +344,6 @@ class BridgeConnection(Connection):
 
     async def _send(self, *argv):
         await self.send_queue.put([*argv])
+
+    async def _drain(self):
+        pass

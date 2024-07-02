@@ -242,10 +242,32 @@ class BivalveAgent:
             log.info(f"Peer disconnected: {conn}")
             self.schedule(self._on_disconnect(conn))
 
+    async def _drain_to_peer(
+        self, ctx: ConnectionContext
+    ) -> tuple[ConnectionContext, Optional[Exception]]:
+        try:
+            await ctx.conn.drain()
+            return ctx, None
+
+        except Exception as e:
+            return ctx, e
+
     async def maintain(self):
         trash: list[Connection] = []
 
         now = datetime.now()
+
+        results = await asyncio.gather(
+            *[self._drain_to_peer(conn) for conn in self._conn_ctx_map.values()]
+        )
+
+        for ctx, e in results:
+            if e is not None:
+                trash.append(ctx.conn)
+                log.error(
+                    "Failed to drain to peer, closing connection: {ctx.conn}",
+                    exc_info=e,
+                )
 
         for ctx in self._conn_ctx_map.values():
             try:
@@ -304,6 +326,8 @@ class BivalveAgent:
         while await conn.alive():
             try:
                 argv = await conn.recv()
+                if not argv:
+                    continue
                 try:
                     await self.process_command(conn, *argv)
                 except CommandError:

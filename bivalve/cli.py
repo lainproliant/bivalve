@@ -105,6 +105,7 @@ class ClientAgent(BivalveAgent):
     def __init__(self, config: Config):
         super().__init__()
         self.config = config
+        self.tasks: list[asyncio.Task] = []
 
     def ctrlc_handler(self, *_):
         log.critical("Ctrl+C received.")
@@ -129,14 +130,14 @@ class ClientAgent(BivalveAgent):
             if self.config.script:
                 commands.extend(self._load_script(self.config.script))
             commands.append(shlex.join(self.config.args))
-            thread = threading.Thread(target=self.script_thread, args=(loop, commands))
+            self.tasks.append(asyncio.create_task(self.script_task(commands)))
 
         elif self.config.script:
             commands = self._load_script(self.config.script)
-            thread = threading.Thread(target=self.script_thread, args=(loop, commands))
+            self.tasks.append(asyncio.create_task(self.script_task(commands)))
 
         else:
-            thread = threading.Thread(target=self.repl_thread, args=(loop,))
+            self.tasks.append(asyncio.create_task(self.repl_task()))
 
         ssl_ctx: Optional[ssl.SSLContext] = None
 
@@ -154,9 +155,7 @@ class ClientAgent(BivalveAgent):
             ssl=ssl_ctx,
         )
 
-        thread.start()
         await super().run()
-        thread.join()
 
     def on_disconnect(self, _):
         self.shutdown()
@@ -164,13 +163,14 @@ class ClientAgent(BivalveAgent):
     def on_unrecognized_command(self, conn, *argv):
         print(f"<< CMD {' '.join(argv)}")
 
-    def script_thread(self, loop, commands):
+    async def script_task(self, commands):
         current_call: Optional[Call] = None
-        asyncio.set_event_loop(loop)
         quiet = False
 
         try:
             while not self._shutdown_event.is_set() and (commands or current_call):
+                await asyncio.sleep(0)
+
                 if current_call:
                     try:
                         result = current_call.future.result()
@@ -186,7 +186,7 @@ class ClientAgent(BivalveAgent):
                         quiet = False
 
                     except asyncio.InvalidStateError:
-                        time.sleep(0.10)
+                        pass
 
                     except Exception:
                         traceback.print_exc()
@@ -207,19 +207,18 @@ class ClientAgent(BivalveAgent):
                     current_call = self.call(*argv[1:], timeout_ms=0)
                     quiet = True
                 else:
-                    asyncio.run_coroutine_threadsafe(
-                        self.send_to(self.peers(), *argv), loop
-                    )
+                    self.schedule(self.send_to(self.peers(), *argv))
 
         finally:
             self.shutdown()
 
-    def repl_thread(self, loop):
+    async def repl_task(self):
         current_call: Optional[Call] = None
-        asyncio.set_event_loop(loop)
 
         with NonBlockingTextInput() as ninput:
             while not self._shutdown_event.is_set():
+                await asyncio.sleep(0)
+
                 if current_call:
                     try:
                         result = current_call.future.result()
@@ -237,7 +236,7 @@ class ClientAgent(BivalveAgent):
                     except asyncio.InvalidStateError:
                         sys.stdout.write(".")
                         sys.stdout.flush()
-                        time.sleep(0.25)
+                        await asyncio.sleep(0.25)
 
                     except Exception:
                         traceback.print_exc()
@@ -263,9 +262,7 @@ class ClientAgent(BivalveAgent):
                         current_call = self.call(*argv[1:], timeout_ms=0)
 
                     else:
-                        asyncio.run_coroutine_threadsafe(
-                            self.send_to(self.peers(), *argv), loop
-                        )
+                        self.schedule(self.send_to(self.peers(), *argv))
 
         # Print a newline before we exit repl.
         print()
