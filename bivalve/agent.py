@@ -235,6 +235,7 @@ class BivalveAgent:
         if notify:
             await conn.try_send("bye")
 
+        await conn.drain()
         await conn.close()
 
         if conn.id in self._conn_ctx_map:
