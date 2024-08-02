@@ -50,32 +50,41 @@ class ConnectionContext:
 
 
 # --------------------------------------------------------------------
+@dataclass
+class AgentConfig:
+    max_peers: int = 0  # No maximum connections by default.
+    syn_schedule_secs: int = 60
+    syn_timeout_secs: int = 30
+    syn_jitter_secs: int = 10
+    loop_duration_ms: int = 150
+    incoming_role: Role = Role.DOWNSTREAM
+    outgoing_role: Role = Role.UPSTREAM
+
+    @property
+    def syn_timeout(self) -> timedelta:
+        return timedelta(seconds=self.syn_timeout_secs)
+
+    @property
+    def syn_schedule(self) -> timedelta:
+        return timedelta(seconds=self.syn_schedule_secs)
+
+
+# --------------------------------------------------------------------
 class BivalveAgent:
     def __init__(
         self,
-        max_peers=0,  # no maximum connections
-        syn_schedule=timedelta(seconds=10),
-        syn_timeout=timedelta(seconds=5),
-        syn_jitter=5,
-        loop_duration_ms=150,
+        config: AgentConfig | None = None,
         loop: Optional[asyncio.AbstractEventLoop] = None,
-        incoming_role: Role = Role.DOWNSTREAM,
-        outgoing_role: Role = Role.UPSTREAM,
     ):
+        config = config or AgentConfig()
         self._commands = CommandMap(self)
         self._conn_ctx_map: dict[int, ConnectionContext] = {}
         self._functions = CommandMap(self, prefix="fn_")
         self._loop = loop
-        self._max_peers = max_peers
+        self._config = config
         self._servers: list[Server] = []
         self._shutdown_event = asyncio.Event()
-        self._loop_duration_ms = loop_duration_ms
-        self._syn_jitter = syn_jitter
-        self._syn_schedule = syn_schedule
-        self._syn_timeout = syn_timeout
         self._scheduled_tasks: set[asyncio.Task] = set()
-        self._incoming_role = incoming_role
-        self._outgoing_role = outgoing_role
 
     @property
     def running(self) -> bool:
@@ -116,7 +125,7 @@ class BivalveAgent:
         self._check_max_peers()
 
         if role == Role.NONE:
-            role = self._outgoing_role
+            role = self._config.outgoing_role
 
         stream = await Stream.connect(**kwargs)
         conn = StreamConnection(stream)
@@ -125,9 +134,9 @@ class BivalveAgent:
         return conn
 
     def _check_max_peers(self):
-        if self._max_peers and len(self._conn_ctx_map) >= self._max_peers:
+        if self._config.max_peers and len(self._conn_ctx_map) >= self._config.max_peers:
             log.warning(
-                f"Cancelled peer connection: maximum number of peers reached ({self._max_peers})."
+                f"Cancelled peer connection: maximum number of peers reached ({self._config.max_peers})."
             )
             raise RuntimeError("Maximum number of peer connections reached.")
 
@@ -138,7 +147,7 @@ class BivalveAgent:
         recv_queue: asyncio.Queue[ArgV] = asyncio.Queue()
 
         if role == Role.NONE:
-            role = self._incoming_role
+            role = self._config.incoming_role
 
         our_conn = Connection.bridge(send_queue, recv_queue)
         their_conn = Connection.bridge(recv_queue, send_queue)
@@ -147,16 +156,16 @@ class BivalveAgent:
         return their_conn
 
     async def on_incoming_stream(self, stream: Stream):
-        if self._max_peers and len(self._conn_ctx_map) >= self._max_peers:
+        if self._config.max_peers and len(self._conn_ctx_map) >= self._config.max_peers:
             await stream.close()
             log.warning(
-                f"Rejected incoming connection on {stream}: maximum number of peers reached ({self._max_peers})."
+                f"Rejected incoming connection on {stream}: maximum number of peers reached ({self._config.max_peers})."
             )
             return
 
         conn = StreamConnection(stream)
         log.info(f"Incoming peer connected: {stream}")
-        self.add_connection(conn, self._incoming_role)
+        self.add_connection(conn, self._config.incoming_role)
 
     def add_connection(self, conn: Connection, role=Role.UPSTREAM):
         self._conn_ctx_map[conn.id] = ConnectionContext(
@@ -255,7 +264,7 @@ class BivalveAgent:
                 elif ctx.syn_at <= now:
                     await ctx.conn.send("syn")
                     ctx.syn_at = datetime.max
-                    ctx.ack_ttl = now + self._syn_timeout
+                    ctx.ack_ttl = now + self._config.syn_timeout
                     self._cleanup_calls(now, ctx)
 
             except Exception:
@@ -329,7 +338,9 @@ class BivalveAgent:
         while self.running:
             now_ms = get_millis()
             await self.maintain()
-            sleep_timeout = max(0, self._loop_duration_ms - (get_millis() - now_ms))
+            sleep_timeout = max(
+                0, self._config.loop_duration_ms - (get_millis() - now_ms)
+            )
             await asyncio.sleep(sleep_timeout / 1000)
 
     def shutdown(self):
@@ -400,8 +411,12 @@ class BivalveAgent:
         ctx.ack_ttl = None
         ctx.syn_at = (
             datetime.now()
-            + self._syn_schedule
-            + timedelta(seconds=random.randint(-self._syn_jitter, self._syn_jitter))
+            + self._config.syn_schedule
+            + timedelta(
+                seconds=random.randint(
+                    -self._config.syn_jitter_secs, self._config.syn_jitter_secs
+                )
+            )
         )
 
     async def cmd_bye(self, conn: Connection):
